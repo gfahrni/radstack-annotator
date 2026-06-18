@@ -17,7 +17,7 @@ presentations.
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 <p align="center">
-  <video src="https://raw.githubusercontent.com/gfahrni/radstack-annotator/main/example.mp4" controls width="700"></video>
+  <img src="screenshots/example.gif" alt="Demo" width="700">
 </p>
 
 ---
