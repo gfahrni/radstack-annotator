@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="screenshots/screenshot_app.png" alt="RadStack Annotator screenshot" width="700">
+</p>
+
 # RadStack Annotator
 
 A matplotlib-based GUI to browse, annotate, and export stacks of radiology
@@ -11,10 +15,6 @@ presentations.
 
 ![Python](https://img.shields.io/badge/python-%3E%3D3.8-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
-
-<p align="center">
-  <img src="screenshots/screenshot_app.png" alt="RadStack Annotator screenshot" width="700">
-</p>
 
 <p align="center">
   <video src="example.mp4" controls width="700"></video>

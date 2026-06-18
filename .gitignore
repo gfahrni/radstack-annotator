@@ -25,3 +25,6 @@ images_annotated/
 # Media & presentation files
 *.mp4
 *.pptx
+
+# Mais on commit la video d'exemple pour le README
+!example.mp4
