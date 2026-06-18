@@ -21,4 +21,7 @@ env/
 # Generated / input image data (not source code)
 images/
 images_annotated/
-annotated-video.mp4
+
+# Media & presentation files
+*.mp4
+*.pptx

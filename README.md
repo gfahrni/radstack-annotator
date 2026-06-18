@@ -16,6 +16,10 @@ presentations.
   <img src="screenshots/screenshot_app.png" alt="RadStack Annotator screenshot" width="700">
 </p>
 
+<p align="center">
+  <video src="example.mp4" controls width="700"></video>
+</p>
+
 ---
 
 ## Features
