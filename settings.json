@@ -3,7 +3,6 @@
     "slider_x": 0.94,
     "slider_w": 0.02,
     "slider_scale": 0.9,
-    "default_data_path": "./images",
     "save_format": "jpeg",
     "save_quality": 100
 }

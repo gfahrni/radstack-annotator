@@ -28,8 +28,8 @@ presentations.
 - **Auto brightness/contrast** — each image is scaled to its min/max pixel range
 - **Annotation tools** — Arrow, Rectangle, Oval, and Text labels
 - **Stamp & interpolate** — copy an annotation to another slice with automatic interpolation across intermediate slices
-- **Export** — save annotated slices as a new image stack (saved as `{your-folder}_annotated/` next to your images)
-- **Export video** — compile the annotated stack into an MP4 video saved alongside your image folder, optimised for smooth scrubbing in PowerPoint (keyframe every frame)
+- **Export** — save annotated slices as a new image stack
+- **Export video** — compile the annotated stack into an MP4 video optimised for smooth scrubbing in PowerPoint (keyframe every frame)
 
 
 ---
@@ -103,21 +103,10 @@ python run.py                    # opens ./images/ folder (default)
 python run.py /path/to/images    # opens a custom folder
 ```
 
-The **Open Folder** button (bottom toolbar) opens a file dialog pre-set to
-the `images/` folder, making it easy to browse to a different folder.
-
-### Export locations
-
-| Action | Location |
-|---|---|
-| **Save Images** | Creates `{your-folder}_annotated/` next to your image folder |
-| **Save Video** | Saves `annotated-video.mp4` next to your image folder |
-
 ### Controls
 
 | Input | Action |
-|---|---|---|
-| **Open Folder** button | Opens a folder picker (defaults to `images/`) |
+|---|---|
 | Mouse wheel up/down | Previous / next image |
 | Vertical slider | Drag to jump to an image |
 | Tool buttons | Select annotation tool, then click-drag on image to draw |
@@ -135,6 +124,7 @@ Edit `settings.json` to adjust the look and feel:
 | `slider_x` | `0.94` | Horizontal position of the slice slider |
 | `slider_w` | `0.02` | Width of the slider bar |
 | `slider_scale` | `0.9` | Slider height relative to the image |
+| `default_data_path` | `"./images"` | Default folder to open |
 
 ---
 

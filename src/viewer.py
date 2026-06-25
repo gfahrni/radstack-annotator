@@ -18,7 +18,7 @@ import subprocess
 import tempfile
 import shutil
 import tkinter as tk
-from tkinter import simpledialog, messagebox
+from tkinter import simpledialog, messagebox, filedialog
 
 import numpy as np
 from PIL import Image as PILImage
@@ -39,7 +39,7 @@ from matplotlib.patches import FancyArrowPatch, Rectangle as MplRect, Ellipse, C
 from matplotlib.lines import Line2D
 from matplotlib.text import Text as MplText
 
-from .loader import load_images
+from .loader import load_images, validate_image_folder
 from .annotations import Arrow, Rect, Oval, TextBox, LinkedGroup, render_annotations
 from .saver import save_annotated_stack, collect_annotations
 
@@ -69,14 +69,14 @@ SETTINGS = _load_settings()
 
 class ImageStackViewer:
 
-    def __init__(self, data_path):
+    def __init__(self, data_path=None):
         self.data_path = data_path
+        self._loaded = False
 
-        self._slices = load_images(data_path)
-        self.num_slices = len(self._slices)
+        self._slices = []
+        self.num_slices = 0
         self._slice_idx = 0
-
-        self._precompute_windowing()
+        self._vmin_max = []
 
         self._annotations = {}
         self._patches = []
@@ -85,6 +85,7 @@ class ImageStackViewer:
         self._drawing = False
         self._draw_start = None
         self._draw_preview = None
+        self._im = None
         self._selected_anno = None
         self._dragging = False
         self._drag_mode = None
@@ -105,7 +106,7 @@ class ImageStackViewer:
         bar_w = 0.90
 
         tool_labels = ['\u2192  Arrow', '\u25ad  Rectangle', '\u25ef  Oval', '[T]  Text']
-        action_labels = ['Save Images', 'Save Video', '\u21ba  Reset']
+        action_labels = ['Open Folder', 'Save Images', 'Save Video', '\u21ba  Reset', '\u21c4  Invert']
 
         self._tool_btns = {}
 
@@ -137,42 +138,107 @@ class ImageStackViewer:
         img_h = 1.0 - img_y - margin
         self.ax = self.fig.add_axes([margin, img_y, 0.90, img_h])
         self.ax.set_facecolor(SETTINGS['bg_color'])
-
-        first_arr = self._slices[0]
-        vmin, vmax = self._vmin_max[0]
-        self._im = self.ax.imshow(first_arr, cmap='gray', vmin=vmin, vmax=vmax)
-        self._update_title()
-        self.ax.axis('off')
-
-        slider_w = SETTINGS['slider_w'] * SETTINGS['slider_scale']
-        slider_x = SETTINGS['slider_x'] + (SETTINGS['slider_w'] - slider_w) / 2
-        init_h = img_h * SETTINGS['slider_scale']
-        init_y = img_y + img_h * (1 - SETTINGS['slider_scale']) / 2
-
-        slider_ax = self.fig.add_axes([slider_x, init_y, slider_w, init_h])
-        slider_ax.set_facecolor('#3c3c3c')
-
-        self._slider = Slider(
-            ax=slider_ax, label='',
-            valmin=0, valmax=self.num_slices - 1,
-            valinit=0, valstep=1,
-            orientation='vertical',
-            track_color='#555555',
-            handle_style={'facecolor': '#aaaaaa', 'size': 10},
-        )
-        self._slider.on_changed(self._on_slider)
-        self._slider_active = False
+        self._show_placeholder()
 
         self.fig.canvas.draw()
-        self._reposition_slider_to_image()
         self.fig.canvas.mpl_connect('resize_event', self._on_resize)
         self.fig.canvas.mpl_connect('scroll_event', self._on_scroll)
         self.fig.canvas.mpl_connect('button_press_event', self._on_press)
         self.fig.canvas.mpl_connect('button_release_event', self._on_release)
         self.fig.canvas.mpl_connect('motion_notify_event', self._on_motion)
 
+        if data_path is not None:
+            self._load_folder(data_path)
+
         self.fig.canvas.manager.show()
         plt.show()
+
+    # ------------------------------------------------------------------
+    # Folder loading
+    # ------------------------------------------------------------------
+
+    def _open_folder_dialog(self):
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        default_dir = os.path.join(base, 'images')
+        folder = filedialog.askdirectory(
+            title='Select folder with images',
+            initialdir=default_dir if os.path.isdir(default_dir) else base,
+        )
+        if folder:
+            self._load_folder(folder)
+
+    def _reset_data_state(self):
+        self._slices = []
+        self.num_slices = 0
+        self._slice_idx = 0
+        self._vmin_max = []
+        self._annotations = {}
+        self._linked_groups = []
+        self._selected_anno = None
+        self._active_tool = None
+        self._stamp_mode = False
+        self._drawing = False
+        self._draw_start = None
+        self._draw_preview = None
+        self._loaded = False
+        self._im = None
+        self._clear_patches()
+        if hasattr(self, '_slider'):
+            try:
+                self._slider.ax.remove()
+            except Exception:
+                pass
+            del self._slider
+
+    def _load_folder(self, data_path):
+        valid, msg = validate_image_folder(data_path)
+        if not valid:
+            messagebox.showerror('Invalid Folder', msg)
+            return
+
+        self._reset_data_state()
+        self.data_path = data_path
+        self._slices = load_images(data_path)
+        self.num_slices = len(self._slices)
+        self._slice_idx = 0
+        self._precompute_windowing()
+        self._loaded = True
+
+        self._show_slice()
+        self._create_slider()
+        self._set_button_colors()
+        self.fig.canvas.draw_idle()
+
+    def _show_placeholder(self):
+        self.ax.clear()
+        self.ax.text(0.5, 0.5,
+                     'Click "Open Folder"\nto load JPG or PNG images',
+                     ha='center', va='center', color='white', fontsize=18,
+                     transform=self.ax.transAxes, zorder=20)
+        self.ax.axis('off')
+
+    def _create_slider(self):
+        ax_bbox = self.ax.get_position()
+        ax_y = ax_bbox.y0
+        ax_h = ax_bbox.height
+        slider_w = SETTINGS['slider_w'] * SETTINGS['slider_scale']
+        slider_x = SETTINGS['slider_x'] + (SETTINGS['slider_w'] - slider_w) / 2
+        new_h = ax_h * SETTINGS['slider_scale']
+        new_y = ax_y + ax_h * (1 - SETTINGS['slider_scale']) / 2
+
+        slider_ax = self.fig.add_axes([slider_x, new_y, slider_w, new_h])
+        slider_ax.set_facecolor('#3c3c3c')
+
+        self._slider = Slider(
+            ax=slider_ax, label='',
+            valmin=0, valmax=self.num_slices - 1,
+            valinit=self.num_slices - 1, valstep=1,
+            orientation='vertical',
+            track_color='#555555',
+            handle_style={'facecolor': '#aaaaaa', 'size': 10},
+        )
+        self._slider.on_changed(self._on_slider)
+        self._slider_active = False
 
     # ------------------------------------------------------------------
     # Tool activation
@@ -188,7 +254,13 @@ class ImageStackViewer:
             ax.set_facecolor(self.ACTIVE_COLOR if active else '#4a4a4a')
 
     def _handle_tool_click(self, label):
+        if label == 'Open Folder':
+            self._open_folder_dialog()
+            return
         if label == 'Save Images':
+            if not self._loaded:
+                messagebox.showwarning('No Data', 'No images loaded.')
+                return
             self._active_tool = 'save_images'
             self._set_button_colors()
             self.fig.canvas.draw_idle()
@@ -202,6 +274,9 @@ class ImageStackViewer:
             self.fig.canvas.draw_idle()
             return
         if label == 'Save Video':
+            if not self._loaded:
+                messagebox.showwarning('No Data', 'No images loaded.')
+                return
             self._active_tool = 'save_video'
             self._set_button_colors()
             self.fig.canvas.draw_idle()
@@ -215,6 +290,8 @@ class ImageStackViewer:
             self.fig.canvas.draw_idle()
             return
         if label == '\u21ba  Reset':
+            if not self._loaded:
+                return
             self._active_tool = 'reset'
             self._set_button_colors()
             self.fig.canvas.draw_idle()
@@ -227,8 +304,26 @@ class ImageStackViewer:
             self._set_button_colors()
             self.fig.canvas.draw_idle()
             return
+        if label == '\u21c4  Invert':
+            if not self._loaded:
+                return
+            self._active_tool = 'invert'
+            self._set_button_colors()
+            self.fig.canvas.draw_idle()
+            try:
+                self.fig.canvas.manager.window.update()
+            except Exception:
+                pass
+            self._invert_order()
+            self._active_tool = None
+            self._set_button_colors()
+            self.fig.canvas.draw_idle()
+            return
         tid = self.TOOL_BY_LABEL.get(label)
         if tid is None:
+            return
+        if not self._loaded:
+            messagebox.showwarning('No Data', 'Load a folder first.')
             return
         if self._active_tool == tid:
             self._active_tool = None
@@ -245,6 +340,8 @@ class ImageStackViewer:
     # ------------------------------------------------------------------
 
     def _save_stack(self, event=None):
+        if not self._loaded:
+            return
         save_annotated_stack(
             self._slices, self._annotations, self._linked_groups,
             self.data_path, SETTINGS,
@@ -253,6 +350,8 @@ class ImageStackViewer:
         messagebox.showinfo('Save Complete', f'Annotated images saved to:\n{out_dir}')
 
     def _save_video(self):
+        if not self._loaded:
+            return
         quality = SETTINGS.get('save_quality', 100)
         tmp = tempfile.mkdtemp(prefix='radstack_video_')
         try:
@@ -271,8 +370,7 @@ class ImageStackViewer:
                 for idx in range(len(self._slices)):
                     f.write(f"file 'frame_{idx:04d}.jpg'\n")
 
-            out_path = os.path.join(os.path.dirname(__file__), '..', 'annotated-video.mp4')
-            out_path = os.path.abspath(out_path)
+            out_path = os.path.join(os.path.dirname(self.data_path.rstrip('/')), 'annotated-video.mp4')
 
             subprocess.run([
                 'ffmpeg', '-y',
@@ -304,6 +402,42 @@ class ImageStackViewer:
         self.fig.canvas.draw_idle()
         print('Reset — all annotations cleared')
 
+    def _invert_order(self):
+        if not self._loaded:
+            return
+        n = self.num_slices
+        if n == 0:
+            return
+        self._slices = list(reversed(self._slices))
+        self._vmin_max = list(reversed(self._vmin_max))
+
+        new_annotations = {}
+        for idx, annos in self._annotations.items():
+            new_idx = n - 1 - idx
+            for a in annos:
+                a.slice_idx = new_idx
+            new_annotations[new_idx] = annos
+        self._annotations = new_annotations
+
+        for group in self._linked_groups:
+            group.start_slice = n - 1 - group.start_slice
+            group.end_slice = n - 1 - group.end_slice
+
+        self._slice_idx = 0
+        self._selected_anno = None
+        self._stamp_mode = False
+
+        if hasattr(self, '_slider'):
+            self._slider.valmax = n - 1
+            self._slider.ax.set_ylim(0, n - 1)
+            self._slider_active = True
+            self._slider.set_val(n - 1)
+            self._slider_active = False
+
+        self._show_slice()
+        self.fig.canvas.draw_idle()
+        print(f'Image order inverted — now showing slice 1/{n}')
+
     # ------------------------------------------------------------------
     # Windowing
     # ------------------------------------------------------------------
@@ -318,6 +452,9 @@ class ImageStackViewer:
     # ------------------------------------------------------------------
 
     def _update_title(self):
+        if not self._loaded:
+            self.ax.set_title('', fontsize=12, color='white')
+            return
         info = f'Image {self._slice_idx + 1}/{self.num_slices}'
         if self._active_tool:
             info += f'  [{self._active_tool}]'
@@ -326,15 +463,24 @@ class ImageStackViewer:
         self.ax.set_title(info, fontsize=12, color='white')
 
     def _show_slice(self):
+        if not self._loaded:
+            return
         arr = self._slices[self._slice_idx]
         vmin, vmax = self._vmin_max[self._slice_idx]
-        self._im.set_data(arr)
-        self._im.set_clim(vmin, vmax)
+
+        if self._im is None:
+            self.ax.clear()
+            self._im = self.ax.imshow(arr, cmap='gray', vmin=vmin, vmax=vmax)
+            self.ax.axis('off')
+        else:
+            self._im.set_data(arr)
+            self._im.set_clim(vmin, vmax)
+
         self._update_title()
 
         if hasattr(self, '_slider') and not self._slider_active:
             self._slider_active = True
-            self._slider.set_val(self._slice_idx)
+            self._slider.set_val((self.num_slices - 1) - self._slice_idx)
             self._slider_active = False
 
         self._redraw_annotations()
@@ -374,11 +520,9 @@ class ImageStackViewer:
     def _redraw_annotations(self):
         self._clear_patches()
 
-        # Per-slice annotations
         for anno in self._get_annotations():
             self._draw_annotation_patch(anno)
 
-        # Interpolated arrows from linked groups
         for group in self._linked_groups:
             if group.contains_slice(self._slice_idx):
                 interp = group.get_interpolated(self._slice_idx)
@@ -561,6 +705,9 @@ class ImageStackViewer:
         if event.inaxes != self.ax:
             return
 
+        if not self._loaded:
+            return
+
         x, y = event.xdata, event.ydata
 
         if self._stamp_mode:
@@ -669,7 +816,7 @@ class ImageStackViewer:
         if self._dragging and self._selected_anno is not None:
             group = self._is_linked_anchor(self._selected_anno)
             if group and self._selected_anno.slice_idx in (group.start_slice, group.end_slice):
-                pass  # linked groups auto-update since they reference the Arrow object
+                pass
 
         self._dragging = False
         self._drag_mode = None
@@ -697,6 +844,9 @@ class ImageStackViewer:
             return
 
         if event.inaxes != self.ax:
+            return
+
+        if not self._loaded:
             return
 
         x, y = event.xdata, event.ydata
@@ -778,8 +928,10 @@ class ImageStackViewer:
     # ------------------------------------------------------------------
 
     def _on_slider(self, val):
+        if not self._loaded:
+            return
         old_idx = self._slice_idx
-        self._slice_idx = int(val)
+        self._slice_idx = (self.num_slices - 1) - int(val)
         if self._selected_anno is not None:
             if self._selected_anno.slice_idx != self._slice_idx:
                 if not self._stamp_mode:
@@ -800,9 +952,12 @@ class ImageStackViewer:
         self._slider.ax.set_position([slider_x, new_y, slider_w, new_h])
 
     def _on_resize(self, event):
-        self._reposition_slider_to_image()
+        if hasattr(self, '_slider'):
+            self._reposition_slider_to_image()
 
     def _on_scroll(self, event):
+        if not self._loaded:
+            return
         old_idx = self._slice_idx
         if event.button == 'up':
             self._slice_idx = max(0, self._slice_idx - 1)
