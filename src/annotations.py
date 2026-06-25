@@ -28,7 +28,7 @@ class Arrow:
         self.slice_idx = slice_idx
         self.color = color
         self.width = width
-        self.locked = True
+        self.locked = False
 
     def midpoint(self):
         return ((self.x1 + self.x2) / 2, (self.y1 + self.y2) / 2)
@@ -72,7 +72,7 @@ class Rect:
         self.slice_idx = slice_idx
         self.color = color
         self.width = width
-        self.locked = True
+        self.locked = False
 
     def midpoint(self):
         return ((self.x1 + self.x2) / 2, (self.y1 + self.y2) / 2)
@@ -100,7 +100,7 @@ class Oval:
         self.slice_idx = slice_idx
         self.color = color
         self.width = width
-        self.locked = True
+        self.locked = False
 
     def midpoint(self):
         return ((self.x1 + self.x2) / 2, (self.y1 + self.y2) / 2)
@@ -121,7 +121,7 @@ class Oval:
 class TextBox:
 
     def __init__(self, x1, y1, x2, y2, slice_idx, text='',
-                 color=(255, 255, 255), width=3):
+                 color=(255, 255, 255), width=3, font_size=10, show_background=True):
         self.x1 = x1
         self.y1 = y1
         self.x2 = x2
@@ -130,7 +130,9 @@ class TextBox:
         self.text = text
         self.color = color
         self.width = width
-        self.locked = True
+        self.font_size = font_size
+        self.show_background = show_background
+        self.locked = False
 
     def midpoint(self):
         return ((self.x1 + self.x2) / 2, (self.y1 + self.y2) / 2)
@@ -142,10 +144,10 @@ class TextBox:
         self.y2 += dy
 
     def copy_transformed(self, x1, y1, x2, y2, slice_idx):
-        return TextBox(x1, y1, x2, y2, slice_idx, self.text, self.color, self.width)
+        return TextBox(x1, y1, x2, y2, slice_idx, self.text, self.color, self.width, self.font_size, self.show_background)
 
     def copy(self, slice_idx):
-        return TextBox(self.x1, self.y1, self.x2, self.y2, slice_idx, self.text, self.color, self.width)
+        return TextBox(self.x1, self.y1, self.x2, self.y2, slice_idx, self.text, self.color, self.width, self.font_size, self.show_background)
 
 
 class LinkedGroup:
@@ -171,10 +173,15 @@ class LinkedGroup:
         if idx >= self.end_slice:
             return self.end_anno
         t = (idx - self.start_slice) / (self.end_slice - self.start_slice)
+        # Interpolate position only; size is fixed from start_anno
+        w = abs(self.start_anno.x2 - self.start_anno.x1)
+        h = abs(self.start_anno.y2 - self.start_anno.y1)
+        sx = 1 if self.start_anno.x2 >= self.start_anno.x1 else -1
+        sy = 1 if self.start_anno.y2 >= self.start_anno.y1 else -1
         x1 = self.start_anno.x1 + t * (self.end_anno.x1 - self.start_anno.x1)
         y1 = self.start_anno.y1 + t * (self.end_anno.y1 - self.start_anno.y1)
-        x2 = self.start_anno.x2 + t * (self.end_anno.x2 - self.start_anno.x2)
-        y2 = self.start_anno.y2 + t * (self.end_anno.y2 - self.start_anno.y2)
+        x2 = x1 + sx * w
+        y2 = y1 + sy * h
         return self.start_anno.copy_transformed(x1, y1, x2, y2, idx)
 
 
@@ -215,7 +222,6 @@ def render_annotations(image_array, annotations):
     text_boxes = [a for a in annotations if isinstance(a, TextBox)]
     others = [a for a in annotations if not isinstance(a, TextBox)]
 
-    # --- Non-TextBox annotations at 2× ---
     draw = ImageDraw.Draw(img)
     for ann in others:
         x1, y1, x2, y2 = ann.x1 * s, ann.y1 * s, ann.x2 * s, ann.y2 * s
@@ -232,20 +238,21 @@ def render_annotations(image_array, annotations):
             draw.line([(x1, y1), (x2, y2)], fill=ann.color, width=w)
             _draw_arrowhead(draw, x2, y2, dx, dy, ann.color, size=12 * s)
 
-    # --- TextBox at 2× ---
     if text_boxes:
-        font = _get_font(int(12 * s))
         img = img.convert('RGBA')
         for ann in text_boxes:
-            overlay = Image.new('RGBA', img.size, (0, 0, 0, 0))
-            od = ImageDraw.Draw(overlay)
+            font = _get_font(max(1, int(ann.font_size * s)))
             x1, y1, x2, y2 = ann.x1 * s, ann.y1 * s, ann.x2 * s, ann.y2 * s
-            od.rectangle([min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)],
-                         fill=(0, 0, 0, 128), outline=ann.color, width=ann.width * s)
-            img = Image.alpha_composite(img, overlay)
+            if ann.show_background:
+                overlay = Image.new('RGBA', img.size, (0, 0, 0, 0))
+                od = ImageDraw.Draw(overlay)
+                od.rectangle([min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)],
+                             fill=(0, 0, 0, 128), outline=ann.color, width=ann.width * s)
+                img = Image.alpha_composite(img, overlay)
         img = img.convert('RGB')
         draw = ImageDraw.Draw(img)
         for ann in text_boxes:
+            font = _get_font(max(1, int(ann.font_size * s)))
             bbox = draw.textbbox((0, 0), ann.text, font=font)
             tw = bbox[2] - bbox[0]
             th = bbox[3] - bbox[1]
@@ -253,7 +260,6 @@ def render_annotations(image_array, annotations):
             ty = (ann.y1 + ann.y2) * s / 2 - th / 2
             draw.text((tx, ty), ann.text, fill=ann.color, font=font)
 
-    # --- Downscale with anti-aliasing ---
     img = img.resize(orig_size, Image.BOX)
 
     result = np.array(img)

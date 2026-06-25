@@ -22,8 +22,8 @@ from PyQt6.QtWidgets import (
     QGraphicsPixmapItem, QGraphicsPathItem, QGraphicsRectItem,
     QGraphicsEllipseItem, QGraphicsTextItem, QGraphicsPolygonItem,
     QVBoxLayout, QHBoxLayout, QWidget, QSlider,
-    QPushButton, QButtonGroup, QFileDialog, QInputDialog,
-    QMessageBox, QStatusBar, QLabel, QDialog, QDialogButtonBox,
+    QPushButton, QCheckBox, QButtonGroup, QFileDialog, QInputDialog,
+    QMessageBox, QStatusBar, QLabel, QLineEdit, QDialog, QDialogButtonBox,
     QFormLayout, QComboBox, QSpinBox, QColorDialog,
 )
 
@@ -60,6 +60,7 @@ class _GraphicsView(QGraphicsView):
     def __init__(self, viewer=None):
         super().__init__()
         self._viewer = viewer
+        self.setAcceptDrops(True)
 
     def wheelEvent(self, event):
         if self._viewer:
@@ -80,6 +81,21 @@ class _GraphicsView(QGraphicsView):
         if self._viewer and event.button() == Qt.MouseButton.LeftButton:
             self._viewer._on_release(self.mapToScene(event.position().toPoint()))
         event.accept()
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        if self._viewer:
+            self._viewer._on_drop(event)
+        event.acceptProposedAction()
 
     def keyPressEvent(self, event):
         if self._viewer:
@@ -140,6 +156,50 @@ class PreferencesDialog(QDialog):
         super().accept()
 
 
+class TextInputDialog(QDialog):
+    """Dialog for entering text + choosing font size."""
+
+    def __init__(self, parent=None, show_bg=True):
+        super().__init__(parent)
+        self.setWindowTitle('Enter Text')
+
+        layout = QVBoxLayout(self)
+
+        self.text_edit = QLineEdit()
+        self.text_edit.setPlaceholderText('Type your text here...')
+        layout.addWidget(self.text_edit)
+
+        size_layout = QHBoxLayout()
+        size_layout.addWidget(QLabel('Size:'))
+
+        self.size_spin = QSpinBox()
+        self.size_spin.setRange(6, 72)
+        self.size_spin.setValue(10)
+        size_layout.addWidget(self.size_spin)
+
+        self.size_slider = QSlider(Qt.Orientation.Horizontal)
+        self.size_slider.setRange(6, 72)
+        self.size_slider.setValue(10)
+        size_layout.addWidget(self.size_slider)
+
+        layout.addLayout(size_layout)
+
+        self.bg_check = QCheckBox('Background')
+        self.bg_check.setChecked(show_bg)
+        layout.addWidget(self.bg_check)
+
+        self.size_spin.valueChanged.connect(self.size_slider.setValue)
+        self.size_slider.valueChanged.connect(self.size_spin.setValue)
+
+        btns = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
+
+        self.text_edit.setFocus()
+
+
 class ImageStackViewer(QMainWindow):
 
     def __init__(self, data_path=None):
@@ -181,6 +241,7 @@ class ImageStackViewer(QMainWindow):
         self._annotation_items = []
         self._handle_items = []
         self._ghost_items = []
+        self._last_show_bg = True
 
     # ------------------------------------------------------------------
     # UI construction
@@ -188,6 +249,7 @@ class ImageStackViewer(QMainWindow):
 
     def _init_ui(self):
         self.setWindowTitle('RadStack Annotator')
+        self.setAcceptDrops(True)
         self.setMinimumSize(900, 700)
 
         # Menu bar
@@ -350,6 +412,16 @@ class ImageStackViewer(QMainWindow):
     # Folder loading
     # ------------------------------------------------------------------
 
+    def _on_drop(self, event):
+        urls = event.mimeData().urls()
+        if not urls:
+            return
+        path = urls[0].toLocalFile()
+        if os.path.isdir(path):
+            self.load_folder(path)
+        else:
+            self.load_folder(os.path.dirname(path))
+
     def _open_folder_dialog(self):
         last = self.settings.value('last/path', '')
         folder = QFileDialog.getExistingDirectory(
@@ -391,7 +463,6 @@ class ImageStackViewer(QMainWindow):
         self._selected_anno = None
         self._selected_interp_group = None
         self._active_tool = None
-        self._current_color = PALETTE_COLORS_RGB[0]
         self._stamp_mode = False
         self._stamp_eligible = False
         self._drawing = False
@@ -472,6 +543,16 @@ class ImageStackViewer(QMainWindow):
 
     def _on_color_selected(self, idx):
         self._current_color = PALETTE_COLORS_RGB[idx]
+        if self._selected_anno is not None:
+            self._selected_anno.color = self._current_color
+            group = self._is_linked_anchor(self._selected_anno)
+            if group is not None:
+                group.start_anno.color = self._current_color
+                group.end_anno.color = self._current_color
+            elif self._selected_interp_group is not None:
+                grp, _ = self._selected_interp_group
+                grp.start_anno.color = self._current_color
+                grp.end_anno.color = self._current_color
         self._redraw_annotations()
 
     def _show_preferences(self):
@@ -537,6 +618,15 @@ class ImageStackViewer(QMainWindow):
             shutil.rmtree(tmp, ignore_errors=True)
 
     def _reset_all(self):
+        if not self._annotations and not self._linked_groups:
+            return
+        reply = QMessageBox.question(
+            self, 'Reset All',
+            'Are you sure you want to clear all annotations?',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if reply != QMessageBox.StandardButton.Yes:
+            return
         if self._drawing:
             self._cancel_drawing()
         self._annotations = {}
@@ -729,14 +819,15 @@ class ImageStackViewer(QMainWindow):
         if isinstance(anno, TextBox):
             bx, by = min(x1, x2), min(y1, y2)
             rw, rh = abs(x2 - x1), abs(y2 - y1)
-            bg = QGraphicsRectItem(bx, by, rw, rh)
-            bg.setPen(QPen(c, 2))
-            bg.setBrush(QBrush(QColor(0, 0, 0, 128)))
-            bg.setZValue(1)
-            items.append(bg)
+            if anno.show_background:
+                bg = QGraphicsRectItem(bx, by, rw, rh)
+                bg.setPen(QPen(Qt.PenStyle.NoPen))
+                bg.setBrush(QBrush(QColor(0, 0, 0, 128)))
+                bg.setZValue(1)
+                items.append(bg)
             txt = QGraphicsTextItem(anno.text)
             txt.setDefaultTextColor(c)
-            txt.setFont(QFont('sans-serif', 10, QFont.Weight.Bold))
+            txt.setFont(QFont('sans-serif', anno.font_size, QFont.Weight.Bold))
             bbox = txt.boundingRect()
             txt.setPos((x1 + x2) / 2 - bbox.width() / 2,
                        (y1 + y2) / 2 - bbox.height() / 2)
@@ -795,9 +886,13 @@ class ImageStackViewer(QMainWindow):
             is_sel = (anno is self._selected_anno and
                       anno.slice_idx == self._slice_idx)
             items = self._make_annotation_items(anno)
+            sel_color = QColor(*self._current_color)
             for item in items:
                 if is_sel:
-                    item.setPen(QPen(QColor('cyan'), 3))
+                    if isinstance(item, QGraphicsTextItem):
+                        item.setDefaultTextColor(sel_color)
+                    else:
+                        item.setPen(QPen(sel_color, 3))
                 self.scene.addItem(item)
                 self._annotation_items.append(item)
             if is_sel:
@@ -811,9 +906,13 @@ class ImageStackViewer(QMainWindow):
                           self._selected_interp_group[1] == self._slice_idx)
                 lw = 3 if is_sel else 2
                 items = self._make_annotation_items(interp)
+                sel_color = QColor(*self._current_color)
                 for item in items:
                     if is_sel:
-                        item.setPen(QPen(QColor('cyan'), lw))
+                        if isinstance(item, QGraphicsTextItem):
+                            item.setDefaultTextColor(sel_color)
+                        else:
+                            item.setPen(QPen(sel_color, lw))
                     self.scene.addItem(item)
                     self._annotation_items.append(item)
                 if is_sel:
@@ -827,7 +926,7 @@ class ImageStackViewer(QMainWindow):
         for px, py in pts:
             h = QGraphicsEllipseItem(px - 4, py - 4, 8, 8)
             h.setPen(QPen(QColor('white'), 1.5))
-            h.setBrush(QBrush(QColor('cyan')))
+            h.setBrush(QBrush(QColor(*self._current_color)))
             h.setZValue(10)
             self.scene.addItem(h)
             self._handle_items.append(h)
@@ -875,7 +974,7 @@ class ImageStackViewer(QMainWindow):
         for item in self._ghost_items:
             self.scene.removeItem(item)
         self._ghost_items = []
-        pen = QPen(QColor('cyan'), 2, Qt.PenStyle.DashLine)
+        pen = QPen(QColor(*self._current_color), 2, Qt.PenStyle.DashLine)
 
         if isinstance(src, (Rect, TextBox)):
             bx, by = min(gx1, gx2), min(gy1, gy2)
@@ -885,6 +984,16 @@ class ImageStackViewer(QMainWindow):
             rect.setZValue(7)
             self.scene.addItem(rect)
             self._ghost_items.append(rect)
+            if isinstance(src, TextBox) and src.text:
+                txt = QGraphicsTextItem(src.text)
+                txt.setDefaultTextColor(QColor(*self._current_color))
+                txt.setFont(QFont('sans-serif', src.font_size, QFont.Weight.Bold))
+                bbox = txt.boundingRect()
+                txt.setPos((gx1 + gx2) / 2 - bbox.width() / 2,
+                           (gy1 + gy2) / 2 - bbox.height() / 2)
+                txt.setZValue(8)
+                self.scene.addItem(txt)
+                self._ghost_items.append(txt)
         elif isinstance(src, Oval):
             bx, by = min(gx1, gx2), min(gy1, gy2)
             rw, rh = abs(gx2 - gx1), abs(gy2 - gy1)
@@ -912,7 +1021,7 @@ class ImageStackViewer(QMainWindow):
                            gy2 - sz * math.sin(angle + spread))
             poly = QPolygonF([QPointF(gx2, gy2), tip1, tip2])
             head = QGraphicsPolygonItem(poly)
-            head.setBrush(QBrush(QColor('cyan')))
+            head.setBrush(QBrush(QColor(*self._current_color)))
             head.setPen(QPen(Qt.PenStyle.NoPen))
             head.setZValue(7)
             self.scene.addItem(head)
@@ -927,6 +1036,8 @@ class ImageStackViewer(QMainWindow):
         dst = src.copy_transformed(x - dx / 2, y - dy / 2,
                                    x + dx / 2, y + dy / 2,
                                    self._slice_idx)
+        src.color = self._current_color
+        dst.color = self._current_color
         self._add_annotation(dst)
         group = LinkedGroup(src.slice_idx, self._slice_idx, src, dst)
         self._linked_groups.append(group)
@@ -962,6 +1073,15 @@ class ImageStackViewer(QMainWindow):
             return
 
         if self._active_tool in ('arrow', 'rect', 'oval', 'text') and not self._drawing:
+            anno, mode, group = self._find_nearest(x, y)
+            if anno is not None:
+                self._selected_anno = anno
+                self._selected_interp_group = (group, self._slice_idx) if group else None
+                self._stamp_eligible = False
+                self._deselect_all_tools()
+                self._redraw_annotations()
+                self._update_status()
+                return
             self._drawing = True
             self._draw_start = (x, y)
             return
@@ -1006,12 +1126,38 @@ class ImageStackViewer(QMainWindow):
                     kwargs['color'] = self._current_color
                 anno = cls(x1, y1, x2, y2, self._slice_idx, **kwargs)
                 if isinstance(anno, TextBox):
-                    txt, ok = QInputDialog.getText(self, 'Text', 'Enter label:')
-                    anno.text = txt or ''
-                self._add_annotation(anno)
+                    anno.text = ''
+                    self._add_annotation(anno)
+                    dialog = TextInputDialog(self, show_bg=self._last_show_bg)
+                    right_x = max(x1, x2)
+                    top_y = min(y1, y2)
+                    dialog.move(
+                        self.view.mapToGlobal(
+                            self.view.mapFromScene(QPointF(right_x + 5, top_y))))
+                    dialog.text_edit.textChanged.connect(
+                        lambda txt: setattr(anno, 'text', txt) or self._redraw_annotations())
+                    dialog.size_spin.valueChanged.connect(
+                        lambda fs: setattr(anno, 'font_size', fs) or self._redraw_annotations())
+                    dialog.bg_check.toggled.connect(
+                        lambda checked: setattr(anno, 'show_background', checked) or self._redraw_annotations())
+                    if dialog.exec() == QDialog.DialogCode.Accepted:
+                        anno.text = dialog.text_edit.text()
+                        anno.font_size = dialog.size_spin.value()
+                        anno.show_background = dialog.bg_check.isChecked()
+                        self._last_show_bg = dialog.bg_check.isChecked()
+                    else:
+                        self._last_show_bg = dialog.bg_check.isChecked()
+                        self._remove_annotation(anno)
+                        self._redraw_annotations()
+                        self._drawing = False
+                        self._draw_start = None
+                        return
+                else:
+                    self._add_annotation(anno)
                 self._selected_anno = anno
                 self._selected_interp_group = None
                 self._stamp_eligible = True
+                self._deselect_all_tools()
                 self._redraw_annotations()
                 self._update_status()
             self._drawing = False
@@ -1036,7 +1182,7 @@ class ImageStackViewer(QMainWindow):
                 self.scene.removeItem(item)
             self._preview_items = []
             x1, y1 = self._draw_start
-            pen = QPen(QColor('red'), 2, Qt.PenStyle.DashLine)
+            pen = QPen(QColor(*self._current_color), 2, Qt.PenStyle.DashLine)
 
             if self._active_tool == 'arrow':
                 path = QPainterPath()
@@ -1074,7 +1220,30 @@ class ImageStackViewer(QMainWindow):
             self._drag_start = None
             return
 
-        if self._drag_mode == 'body':
+        if self._selected_interp_group is not None:
+            group, _ = self._selected_interp_group
+            if self._drag_mode == 'body':
+                mx, my = self._selected_anno.midpoint()
+                dx = x - mx
+                dy = y - my
+                group.start_anno.translate(dx, dy)
+                group.end_anno.translate(dx, dy)
+            elif self._drag_mode == 'head':
+                dx2 = x - self._selected_anno.x2
+                dy2 = y - self._selected_anno.y2
+                group.start_anno.x2 += dx2
+                group.start_anno.y2 += dy2
+                group.end_anno.x2 += dx2
+                group.end_anno.y2 += dy2
+            elif self._drag_mode == 'tail':
+                dx1 = x - self._selected_anno.x1
+                dy1 = y - self._selected_anno.y1
+                group.start_anno.x1 += dx1
+                group.start_anno.y1 += dy1
+                group.end_anno.x1 += dx1
+                group.end_anno.y1 += dy1
+            self._selected_anno = group.get_interpolated(self._slice_idx)
+        elif self._drag_mode == 'body':
             mx, my = self._selected_anno.midpoint()
             dx = x - mx
             dy = y - my
@@ -1085,6 +1254,20 @@ class ImageStackViewer(QMainWindow):
         elif self._drag_mode == 'tail':
             self._selected_anno.x1 = x
             self._selected_anno.y1 = y
+
+        # Unify size across LinkedGroup so all slices share the same dimensions
+        linked = self._selected_interp_group
+        if linked is None:
+            linked = self._is_linked_anchor(self._selected_anno)
+        if linked is not None:
+            group = linked[0] if isinstance(linked, tuple) else linked
+            w = abs(self._selected_anno.x2 - self._selected_anno.x1)
+            h = abs(self._selected_anno.y2 - self._selected_anno.y1)
+            for ann in (group.start_anno, group.end_anno):
+                sx = 1 if ann.x2 >= ann.x1 else -1
+                sy = 1 if ann.y2 >= ann.y1 else -1
+                ann.x2 = ann.x1 + sx * w
+                ann.y2 = ann.y1 + sy * h
 
         self._redraw_annotations()
 
@@ -1109,7 +1292,26 @@ class ImageStackViewer(QMainWindow):
         self._show_slice()
 
     def _on_key_press(self, event):
-        if (event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace) and
+        key = event.key()
+        if key in (Qt.Key.Key_Up, Qt.Key.Key_Down):
+            old_idx = self._slice_idx
+            if key == Qt.Key.Key_Up:
+                self._slice_idx = max(0, self._slice_idx - 1)
+            else:
+                self._slice_idx = min(self.num_slices - 1, self._slice_idx + 1)
+            if self._slice_idx != old_idx:
+                self._selected_interp_group = None
+                if (self._selected_anno is not None and
+                        self._selected_anno.slice_idx != self._slice_idx):
+                    if self._stamp_eligible and not self._stamp_mode:
+                        self._enter_stamp_mode()
+                elif self._stamp_mode and self._selected_anno is not None:
+                    if self._selected_anno.slice_idx == self._slice_idx:
+                        self._exit_stamp_mode()
+                self._show_slice()
+            return
+
+        if (key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace) and
                 self._selected_anno is not None):
             anno = self._selected_anno
             group_info = self._selected_interp_group
