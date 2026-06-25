@@ -306,8 +306,7 @@ class ImageStackViewer(QMainWindow):
 
         # Slider
         self._slider = QSlider(Qt.Orientation.Vertical)
-        self._slider.setInvertedAppearance(True)
-        self._slider.setInvertedControls(True)
+
         self._slider.setStyleSheet("""
             QSlider::groove:vertical {
                 background: #555; width: 6px; border-radius: 3px;
@@ -418,7 +417,7 @@ class ImageStackViewer(QMainWindow):
     def _setup_slider(self):
         self._slider.setRange(0, self.num_slices - 1)
         self._slider.blockSignals(True)
-        self._slider.setValue(self.num_slices - 1)
+        self._slider.setValue(0)
         self._slider.blockSignals(False)
 
     # ------------------------------------------------------------------
@@ -572,7 +571,7 @@ class ImageStackViewer(QMainWindow):
         self._selected_anno = None
         self._stamp_mode = False
         self._slider.blockSignals(True)
-        self._slider.setValue(n - 1)
+        self._slider.setValue(0)
         self._slider.blockSignals(False)
         self._show_slice()
         self._status.showMessage(
@@ -658,7 +657,7 @@ class ImageStackViewer(QMainWindow):
         self._redraw_annotations()
 
         self._slider.blockSignals(True)
-        self._slider.setValue(self.num_slices - 1 - self._slice_idx)
+        self._slider.setValue(self._slice_idx)
         self._slider.blockSignals(False)
 
         self.view.fitInView(
@@ -1134,7 +1133,7 @@ class ImageStackViewer(QMainWindow):
         if not self._loaded:
             return
         old_idx = self._slice_idx
-        self._slice_idx = (self.num_slices - 1) - int(val)
+        self._slice_idx = int(val)
         if self._slice_idx != old_idx:
             self._selected_interp_group = None
         if self._selected_anno is not None:
