@@ -306,6 +306,7 @@ class ImageStackViewer(QMainWindow):
 
         # Slider
         self._slider = QSlider(Qt.Orientation.Vertical)
+        self._slider.setInvertedAppearance(True)
 
         self._slider.setStyleSheet("""
             QSlider::groove:vertical {
