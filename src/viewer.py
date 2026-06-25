@@ -12,7 +12,7 @@ import shutil
 import numpy as np
 from PIL import Image as PILImage
 
-from PyQt6.QtCore import Qt, QRectF, QPointF, QSettings
+from PyQt6.QtCore import Qt, QRectF, QPointF, QSettings, QTimer
 from PyQt6.QtGui import (
     QPixmap, QImage, QPainter, QPen, QColor, QBrush, QFont,
     QAction, QKeySequence, QPainterPath, QPolygonF,
@@ -338,6 +338,10 @@ class ImageStackViewer(QMainWindow):
         else:
             self.resize(1000, 800)
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        QTimer.singleShot(0, self._refit_view)
+
     def closeEvent(self, event):
         self.settings.setValue('window/geometry', self.saveGeometry())
         super().closeEvent(event)
@@ -652,10 +656,22 @@ class ImageStackViewer(QMainWindow):
         self.scene.setSceneRect(
             QRectF(0, 0, pixmap.width(), pixmap.height()))
         self._redraw_annotations()
+
+        self._slider.blockSignals(True)
+        self._slider.setValue(self.num_slices - 1 - self._slice_idx)
+        self._slider.blockSignals(False)
+
         self.view.fitInView(
             self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+        QTimer.singleShot(0, self._refit_view)
+
         self._update_title()
         self._update_status()
+
+    def _refit_view(self):
+        if self._loaded:
+            self.view.fitInView(
+                self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
     # ------------------------------------------------------------------
     # Annotation management
