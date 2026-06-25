@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (
     QFormLayout, QComboBox, QSpinBox, QColorDialog,
 )
 
+from io import BytesIO
 from .loader import load_images, validate_image_folder
 from .annotations import Arrow, Rect, Oval, TextBox, LinkedGroup, render_annotations
 from .saver import save_annotated_stack, collect_annotations
@@ -617,34 +618,24 @@ class ImageStackViewer(QMainWindow):
 
     def _arr_to_qpixmap(self, arr):
         vmin, vmax = self._vmin_max[self._slice_idx]
+        if arr.dtype in (np.float32, np.float64):
+            if arr.ndim == 2:
+                arr = (np.clip((arr - vmin) / (vmax - vmin), 0, 1) * 255).astype(np.uint8)
+            else:
+                arr = (np.clip(arr, 0, 1) * 255).astype(np.uint8)
+
         if arr.ndim == 2:
-            if arr.dtype in (np.float32, np.float64):
-                displayed = np.clip(
-                    (arr - vmin) / (vmax - vmin), 0, 1)
-                displayed = (displayed * 255).astype(np.uint8)
-            else:
-                displayed = arr
-            h, w = displayed.shape
-            rgb = np.stack([displayed] * 3, axis=-1)
-            h2, w2, _ = rgb.shape
-            qimg = QImage(rgb.tobytes(), w2, h2, 3 * w2,
-                          QImage.Format.Format_RGB888)
-        elif arr.ndim == 3:
-            if arr.dtype in (np.float32, np.float64):
-                displayed = (np.clip(arr, 0, 1) * 255).astype(np.uint8)
-            else:
-                displayed = arr
-            h, w, c = displayed.shape
-            if c >= 3:
-                rgb = displayed[:, :, :3]
-            else:
-                rgb = np.stack([displayed.reshape(h, w)] * 3, axis=-1)
-            h2, w2, _ = rgb.shape
-            qimg = QImage(rgb.tobytes(), w2, h2, 3 * w2,
-                          QImage.Format.Format_RGB888)
+            img = PILImage.fromarray(arr, mode='L')
+        elif arr.shape[2] >= 3:
+            img = PILImage.fromarray(arr[:, :, :3], mode='RGB')
         else:
-            return QPixmap()
-        return QPixmap.fromImage(qimg)
+            img = PILImage.fromarray(arr.reshape(arr.shape[0], arr.shape[1]), mode='L')
+
+        buf = BytesIO()
+        img.save(buf, format='PNG')
+        pixmap = QPixmap()
+        pixmap.loadFromData(buf.getvalue())
+        return pixmap
 
     def _show_slice(self):
         if not self._loaded:
