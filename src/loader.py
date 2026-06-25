@@ -10,7 +10,7 @@ Responsibilities:
 import os
 import glob
 import numpy as np
-import matplotlib.image as mpimg
+from PIL import Image as PILImage
 
 
 VALID_EXTENSIONS = {'.jpg', '.jpeg', '.png'}
@@ -84,7 +84,7 @@ def load_images(data_path):
 
     images = []
     for f in files:
-        arr = mpimg.imread(f)
+        arr = np.array(PILImage.open(f))
         images.append(arr)
 
     return images

@@ -1,24 +1,28 @@
 """
-Entry point for RadStack Annotator.
+Entry point for RadStack Annotator (PyQt6 edition).
 
 Usage:
-    python run.py                  # opens the default images/ folder
-    python run.py /path/to/images  # opens a custom folder directly
+    python run.py                  # start with empty state
+    python run.py /path/to/images  # open a folder directly
 """
 
-import os
 import sys
-
+import os
+from PyQt6.QtWidgets import QApplication
 from src.viewer import ImageStackViewer
 
 
 def main():
-    if len(sys.argv) > 1:
-        data_path = sys.argv[1]
-    else:
-        base = os.path.dirname(os.path.abspath(__file__))
-        data_path = os.path.join(base, 'images')
-    ImageStackViewer(data_path)
+    app = QApplication(sys.argv)
+    app.setApplicationName('RadStack Annotator')
+    app.setOrganizationName('RadStack')
+
+    data_path = sys.argv[1] if len(sys.argv) > 1 else None
+
+    viewer = ImageStackViewer(data_path)
+    viewer.show()
+
+    sys.exit(app.exec())
 
 
 if __name__ == '__main__':

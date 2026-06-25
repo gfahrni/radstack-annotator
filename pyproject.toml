@@ -1,10 +1,10 @@
 [project]
 name = "radstack-annotator"
-version = "0.1.0"
-description = "A matplotlib-based GUI to browse, annotate, and export stacks of images"
-requires-python = ">=3.8"
+version = "0.2.0"
+description = "RadStack Annotator — PyQt6 edition"
+requires-python = ">=3.9"
 dependencies = [
     "numpy",
-    "matplotlib",
     "Pillow",
+    "PyQt6",
 ]
