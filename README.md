@@ -122,6 +122,7 @@ the `images/` folder, making it easy to browse to a different folder.
 | Vertical slider | Drag to jump to an image |
 | Tool buttons | Select annotation tool, then click-drag on image to draw |
 | Scroll after selecting an annotation | Activates stamp mode |
+| **Delete** / **Backspace** with annotation selected | Deletes the selected annotation (and its stamped copy if any) |
 
 ### Colour palette
 

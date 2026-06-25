@@ -96,6 +96,7 @@ class ImageStackViewer:
         self._stamp_eligible = False
         self._ghost_patch = None
         self._linked_groups = []
+        self._selected_interp_group = None
 
         self._palette_axes = []
         self._palette_visible = False
@@ -181,6 +182,7 @@ class ImageStackViewer:
         self._vmin_max = []
         self._annotations = {}
         self._linked_groups = []
+        self._selected_interp_group = None
         self._selected_anno = None
         self._active_tool = None
         self._stamp_mode = False
@@ -453,6 +455,7 @@ class ImageStackViewer:
         self._stamp_eligible = False
         self._annotations = {}
         self._linked_groups = []
+        self._selected_interp_group = None
         self._selected_anno = None
         self._active_tool = None
         self._current_color = self.PALETTE_COLORS_RGB[0]
@@ -598,11 +601,15 @@ class ImageStackViewer:
         for group in self._linked_groups:
             if group.contains_slice(self._slice_idx):
                 interp = group.get_interpolated(self._slice_idx)
-                self._draw_annotation_patch(interp, lw=2)
+                is_sel = (self._selected_interp_group is not None
+                          and self._selected_interp_group[0] is group
+                          and self._selected_interp_group[1] == self._slice_idx)
+                self._draw_annotation_patch(interp, lw=3 if is_sel else 2,
+                                            selected=is_sel)
 
-    def _draw_annotation_patch(self, anno, color=None, lw=None):
-        is_selected = (anno is self._selected_anno
-                       and anno.slice_idx == self._slice_idx)
+    def _draw_annotation_patch(self, anno, color=None, lw=None, selected=False):
+        is_selected = selected or (anno is self._selected_anno
+                                   and anno.slice_idx == self._slice_idx)
         c = color or ('cyan' if is_selected else self._anno_color(anno))
         w = lw or (3 if is_selected else 2)
         x1, y1, x2, y2 = anno.x1, anno.y1, anno.x2, anno.y2
@@ -831,9 +838,10 @@ class ImageStackViewer:
             if mode:
                 return
 
-        anno, mode = self._find_nearest(x, y)
+        anno, mode, group = self._find_nearest(x, y)
         if anno is not None:
             self._selected_anno = anno
+            self._selected_interp_group = (group, self._slice_idx) if group else None
             self._stamp_eligible = False
             self._redraw_annotations()
             self.fig.canvas.draw_idle()
@@ -841,6 +849,7 @@ class ImageStackViewer:
 
         if self._selected_anno is not None:
             self._selected_anno = None
+            self._selected_interp_group = None
             self._stamp_eligible = False
             self._exit_stamp_mode()
             self._redraw_annotations()
@@ -872,6 +881,7 @@ class ImageStackViewer:
                         anno.text = ''
                 self._add_annotation(anno)
                 self._selected_anno = anno
+                self._selected_interp_group = None
                 self._stamp_eligible = True
                 self._redraw_annotations()
             self._drawing = False
@@ -892,10 +902,17 @@ class ImageStackViewer:
     def _on_key_press(self, event):
         if event.key in ('delete', 'backspace') and self._selected_anno is not None:
             anno = self._selected_anno
+            group_info = self._selected_interp_group
             self._selected_anno = None
+            self._selected_interp_group = None
             self._stamp_eligible = False
             self._exit_stamp_mode()
-            self._remove_annotation(anno)
+            if group_info is not None:
+                group, _ = group_info
+                if group in self._linked_groups:
+                    self._remove_annotation(group.start_anno)
+            else:
+                self._remove_annotation(anno)
             self._redraw_annotations()
             self.fig.canvas.draw_idle()
 
@@ -1003,8 +1020,14 @@ class ImageStackViewer:
         for anno in self._get_annotations():
             mode = self._hit_test(x, y, anno, tol)
             if mode:
-                return anno, mode
-        return None, None
+                return anno, mode, None
+        for group in self._linked_groups:
+            if group.contains_slice(self._slice_idx):
+                interp = group.get_interpolated(self._slice_idx)
+                mode = self._hit_test(x, y, interp, tol)
+                if mode:
+                    return interp, mode, group
+        return None, None, None
 
     # ------------------------------------------------------------------
     # Slider / Scroll
@@ -1015,6 +1038,8 @@ class ImageStackViewer:
             return
         old_idx = self._slice_idx
         self._slice_idx = (self.num_slices - 1) - int(val)
+        if self._slice_idx != old_idx:
+            self._selected_interp_group = None
         if self._selected_anno is not None:
             if self._selected_anno.slice_idx != self._slice_idx:
                 if self._stamp_eligible and not self._stamp_mode:
@@ -1049,6 +1074,7 @@ class ImageStackViewer:
         elif event.button == 'down':
             self._slice_idx = min(self.num_slices - 1, self._slice_idx + 1)
         if self._slice_idx != old_idx:
+            self._selected_interp_group = None
             if (self._selected_anno is not None
                     and self._selected_anno.slice_idx != self._slice_idx):
                 if self._stamp_eligible and not self._stamp_mode:
