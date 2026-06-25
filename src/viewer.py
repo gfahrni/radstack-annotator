@@ -649,7 +649,7 @@ class ImageStackViewer(QMainWindow):
         self.scene.clear()
         self._pixmap_item = self.scene.addPixmap(pixmap)
         self._pixmap_item.setZValue(0)
-        self._annotation_items = [self._pixmap_item]
+        self._annotation_items = []
         self._handle_items = []
         self._ghost_items = []
         self._preview_items = []
