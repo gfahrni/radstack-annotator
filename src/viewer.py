@@ -93,8 +93,14 @@ class ImageStackViewer:
         self._hovered_btn = None
 
         self._stamp_mode = False
+        self._stamp_eligible = False
         self._ghost_patch = None
         self._linked_groups = []
+
+        self._palette_axes = []
+        self._palette_visible = False
+        self._current_color = self.PALETTE_COLORS_RGB[0]
+        self._selected_palette_idx = 0
 
         self.fig = plt.figure(figsize=(10, 10))
         self.fig.set_facecolor(SETTINGS['bg_color'])
@@ -146,6 +152,7 @@ class ImageStackViewer:
         self.fig.canvas.mpl_connect('button_press_event', self._on_press)
         self.fig.canvas.mpl_connect('button_release_event', self._on_release)
         self.fig.canvas.mpl_connect('motion_notify_event', self._on_motion)
+        self.fig.canvas.mpl_connect('key_press_event', self._on_key_press)
 
         if data_path is not None:
             self._load_folder(data_path)
@@ -177,11 +184,15 @@ class ImageStackViewer:
         self._selected_anno = None
         self._active_tool = None
         self._stamp_mode = False
+        self._stamp_eligible = False
         self._drawing = False
         self._draw_start = None
         self._draw_preview = None
         self._loaded = False
         self._im = None
+        self._current_color = self.PALETTE_COLORS_RGB[0]
+        self._selected_palette_idx = 0
+        self._hide_palette()
         self._clear_patches()
         if hasattr(self, '_slider'):
             try:
@@ -247,11 +258,57 @@ class ImageStackViewer:
     TOOL_BY_LABEL = {'\u2192  Arrow': 'arrow', '\u25ad  Rectangle': 'rect', '\u25ef  Oval': 'oval', '[T]  Text': 'text'}
     ACTIVE_COLOR = '#5bb8f7'
 
+    PALETTE_COLORS = ['#00e5ff', '#ffee58', '#ff9100', '#ff4081', '#76ff03', '#e040fb', '#ffffff', '#ff1744']
+    PALETTE_COLORS_RGB = [
+        (0, 229, 255), (255, 238, 88), (255, 145, 0), (255, 64, 129),
+        (118, 255, 3), (224, 64, 251), (255, 255, 255), (255, 23, 68),
+    ]
+
     def _set_button_colors(self):
         for label, ax in self._tool_btns.items():
             tid = self.TOOL_BY_LABEL.get(label)
             active = (tid is not None and self._active_tool == tid)
             ax.set_facecolor(self.ACTIVE_COLOR if active else '#4a4a4a')
+
+    def _show_palette(self):
+        if self._palette_visible:
+            self._hide_palette()
+        n = len(self.PALETTE_COLORS)
+        margin = 0.02
+        button_h = 0.04
+        btn_gap = 0.02
+        img_y = margin + 2 * (button_h + btn_gap)
+        img_h = 1.0 - img_y - margin
+        gap = 0.004
+        palette_x = 0.0
+        palette_w = 0.028
+        swatch_h = (img_h - (n - 1) * gap) / n
+        for i in range(n):
+            y = img_y + i * (swatch_h + gap)
+            ax = self.fig.add_axes([palette_x, y, palette_w, swatch_h])
+            ax.set_facecolor(self.PALETTE_COLORS[i])
+            ax.set_xticks([])
+            ax.set_yticks([])
+            if i == self._selected_palette_idx:
+                for sp in ax.spines.values():
+                    sp.set_color('white')
+                    sp.set_linewidth(2.5)
+            else:
+                for sp in ax.spines.values():
+                    sp.set_color('#333333')
+                    sp.set_linewidth(0.5)
+            self._palette_axes.append(ax)
+        self._palette_visible = True
+        self.fig.canvas.draw_idle()
+
+    def _hide_palette(self):
+        for ax in self._palette_axes:
+            try:
+                ax.remove()
+            except Exception:
+                pass
+        self._palette_axes = []
+        self._palette_visible = False
 
     def _handle_tool_click(self, label):
         if label == 'Open Folder':
@@ -328,9 +385,11 @@ class ImageStackViewer:
         if self._active_tool == tid:
             self._active_tool = None
             self.fig.canvas.set_cursor(cursors.POINTER)
+            self._hide_palette()
         else:
             self._active_tool = tid
             self.fig.canvas.set_cursor(cursors.HAND if tid == 'arrow' else cursors.POINTER)
+            self._show_palette()
         self._set_button_colors()
         self._update_title()
         self.fig.canvas.draw_idle()
@@ -391,10 +450,14 @@ class ImageStackViewer:
         if self._drawing:
             self._cancel_drawing()
         self._stamp_mode = False
+        self._stamp_eligible = False
         self._annotations = {}
         self._linked_groups = []
         self._selected_anno = None
         self._active_tool = None
+        self._current_color = self.PALETTE_COLORS_RGB[0]
+        self._selected_palette_idx = 0
+        self._hide_palette()
         self._clear_patches()
         self._redraw_annotations()
         self._set_button_colors()
@@ -505,6 +568,15 @@ class ImageStackViewer:
         idx = anno.slice_idx
         if idx in self._annotations and anno in self._annotations[idx]:
             self._annotations[idx].remove(anno)
+        for g in self._linked_groups[:]:
+            if anno is g.start_anno:
+                if g.end_anno in self._annotations.get(g.end_slice, []):
+                    self._annotations[g.end_slice].remove(g.end_anno)
+                self._linked_groups.remove(g)
+            elif anno is g.end_anno:
+                if g.start_anno in self._annotations.get(g.start_slice, []):
+                    self._annotations[g.start_slice].remove(g.start_anno)
+                self._linked_groups.remove(g)
 
     def _clear_patches(self):
         for p in self._patches:
@@ -677,6 +749,11 @@ class ImageStackViewer:
               f' (interpolating {group.start_slice}–{group.end_slice})')
         self._selected_anno = None
         self._exit_stamp_mode()
+        self._active_tool = None
+        self._hide_palette()
+        self._set_button_colors()
+        self._update_title()
+        self.fig.canvas.draw_idle()
 
     # ------------------------------------------------------------------
     # Mouse events
@@ -702,6 +779,13 @@ class ImageStackViewer:
                 self._handle_tool_click(label)
                 return
 
+        for i, ax in enumerate(self._palette_axes):
+            if event.inaxes == ax:
+                self._current_color = self.PALETTE_COLORS_RGB[i]
+                self._selected_palette_idx = i
+                self._show_palette()
+                return
+
         if event.inaxes != self.ax:
             return
 
@@ -715,17 +799,6 @@ class ImageStackViewer:
             return
 
         if self._active_tool in ('arrow', 'rect', 'oval', 'text') and not self._drawing:
-            anno, mode = self._find_nearest(x, y)
-            if anno is not None:
-                self._selected_anno = anno
-                self._dragging = True
-                self._drag_mode = mode
-                if mode == 'body':
-                    mx, my = anno.midpoint()
-                    self._drag_start = (x - mx, y - my)
-                self._redraw_annotations()
-                self.fig.canvas.draw_idle()
-                return
             self._drawing = True
             self._draw_start = (x, y)
             if self._active_tool == 'arrow':
@@ -756,27 +829,19 @@ class ImageStackViewer:
         if self._selected_anno is not None and self._selected_anno.slice_idx == self._slice_idx:
             mode = self._hit_test(x, y, self._selected_anno)
             if mode:
-                self._dragging = True
-                self._drag_mode = mode
-                if mode == 'body':
-                    mx, my = self._selected_anno.midpoint()
-                    self._drag_start = (x - mx, y - my)
                 return
 
         anno, mode = self._find_nearest(x, y)
         if anno is not None:
             self._selected_anno = anno
-            self._dragging = True
-            self._drag_mode = mode
-            if mode == 'body':
-                mx, my = anno.midpoint()
-                self._drag_start = (x - mx, y - my)
+            self._stamp_eligible = False
             self._redraw_annotations()
             self.fig.canvas.draw_idle()
             return
 
         if self._selected_anno is not None:
             self._selected_anno = None
+            self._stamp_eligible = False
             self._exit_stamp_mode()
             self._redraw_annotations()
             self.fig.canvas.draw_idle()
@@ -794,7 +859,10 @@ class ImageStackViewer:
             if x2 is not None and y2 is not None and (abs(x2 - x1) > 5 or abs(y2 - y1) > 5):
                 tool = self._active_tool
                 cls = {'arrow': Arrow, 'rect': Rect, 'oval': Oval, 'text': TextBox}.get(tool, Arrow)
-                anno = cls(x1, y1, x2, y2, self._slice_idx)
+                kwargs = {}
+                if self._current_color is not None:
+                    kwargs['color'] = self._current_color
+                anno = cls(x1, y1, x2, y2, self._slice_idx, **kwargs)
                 if isinstance(anno, TextBox):
                     try:
                         root = self.fig.canvas.manager.window
@@ -804,11 +872,10 @@ class ImageStackViewer:
                         anno.text = ''
                 self._add_annotation(anno)
                 self._selected_anno = anno
+                self._stamp_eligible = True
                 self._redraw_annotations()
             self._drawing = False
             self._draw_start = None
-            self._active_tool = None
-            self._set_button_colors()
             self._update_title()
             self.fig.canvas.draw_idle()
             return
@@ -821,6 +888,16 @@ class ImageStackViewer:
         self._dragging = False
         self._drag_mode = None
         self._drag_start = None
+
+    def _on_key_press(self, event):
+        if event.key in ('delete', 'backspace') and self._selected_anno is not None:
+            anno = self._selected_anno
+            self._selected_anno = None
+            self._stamp_eligible = False
+            self._exit_stamp_mode()
+            self._remove_annotation(anno)
+            self._redraw_annotations()
+            self.fig.canvas.draw_idle()
 
     def _on_motion(self, event):
         held_label = None
@@ -874,6 +951,12 @@ class ImageStackViewer:
             return
 
         if not self._dragging or self._selected_anno is None:
+            return
+
+        if getattr(self._selected_anno, 'locked', False):
+            self._dragging = False
+            self._drag_mode = None
+            self._drag_start = None
             return
 
         if self._drag_mode == 'body' and self._drag_start is not None:
@@ -934,7 +1017,7 @@ class ImageStackViewer:
         self._slice_idx = (self.num_slices - 1) - int(val)
         if self._selected_anno is not None:
             if self._selected_anno.slice_idx != self._slice_idx:
-                if not self._stamp_mode:
+                if self._stamp_eligible and not self._stamp_mode:
                     self._enter_stamp_mode()
             else:
                 if self._stamp_mode:
@@ -954,6 +1037,8 @@ class ImageStackViewer:
     def _on_resize(self, event):
         if hasattr(self, '_slider'):
             self._reposition_slider_to_image()
+        if self._palette_visible:
+            self._show_palette()
 
     def _on_scroll(self, event):
         if not self._loaded:
@@ -966,7 +1051,7 @@ class ImageStackViewer:
         if self._slice_idx != old_idx:
             if (self._selected_anno is not None
                     and self._selected_anno.slice_idx != self._slice_idx):
-                if not self._stamp_mode:
+                if self._stamp_eligible and not self._stamp_mode:
                     self._enter_stamp_mode()
             elif self._stamp_mode and self._selected_anno is not None:
                 if self._selected_anno.slice_idx == self._slice_idx:

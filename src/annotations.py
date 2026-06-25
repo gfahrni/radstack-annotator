@@ -28,6 +28,7 @@ class Arrow:
         self.slice_idx = slice_idx
         self.color = color
         self.width = width
+        self.locked = True
 
     def midpoint(self):
         return ((self.x1 + self.x2) / 2, (self.y1 + self.y2) / 2)
@@ -71,6 +72,7 @@ class Rect:
         self.slice_idx = slice_idx
         self.color = color
         self.width = width
+        self.locked = True
 
     def midpoint(self):
         return ((self.x1 + self.x2) / 2, (self.y1 + self.y2) / 2)
@@ -98,6 +100,7 @@ class Oval:
         self.slice_idx = slice_idx
         self.color = color
         self.width = width
+        self.locked = True
 
     def midpoint(self):
         return ((self.x1 + self.x2) / 2, (self.y1 + self.y2) / 2)
@@ -127,6 +130,7 @@ class TextBox:
         self.text = text
         self.color = color
         self.width = width
+        self.locked = True
 
     def midpoint(self):
         return ((self.x1 + self.x2) / 2, (self.y1 + self.y2) / 2)

@@ -123,6 +123,23 @@ the `images/` folder, making it easy to browse to a different folder.
 | Tool buttons | Select annotation tool, then click-drag on image to draw |
 | Scroll after selecting an annotation | Activates stamp mode |
 
+### Colour palette
+
+When an annotation tool is active, a colour palette appears on the left edge of the viewer. Click a swatch to pick a colour for new annotations.
+
+| Swatch | Colour |
+|---|---|
+| `#00e5ff` | Cyan |
+| `#ffee58` | Yellow |
+| `#ff9100` | Orange |
+| `#ff4081` | Pink |
+| `#76ff03` | Lime |
+| `#e040fb` | Magenta |
+| `#ffffff` | White |
+| `#ff1744` | Red |
+
+The first colour (cyan) is selected by default when a tool is activated.
+
 ---
 
 ## Configuration
