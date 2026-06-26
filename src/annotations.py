@@ -235,8 +235,12 @@ def render_annotations(image_array, annotations):
         else:
             dx = x2 - x1
             dy = y2 - y1
-            draw.line([(x1, y1), (x2, y2)], fill=ann.color, width=w)
-            _draw_arrowhead(draw, x2, y2, dx, dy, ann.color, size=12 * s)
+            angle = math.atan2(dy, dx)
+            shorten = ann.width * s * 2
+            x2_line = x2 - shorten * math.cos(angle)
+            y2_line = y2 - shorten * math.sin(angle)
+            draw.line([(x1, y1), (x2_line, y2_line)], fill=ann.color, width=w)
+            _draw_arrowhead(draw, x2, y2, dx, dy, ann.color, size=max(12, ann.width * 3) * s)
 
     if text_boxes:
         img = img.convert('RGBA')

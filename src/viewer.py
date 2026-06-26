@@ -906,16 +906,18 @@ class ImageStackViewer(QMainWindow):
             items.append(ellipse)
 
         else:
+            dx, dy = x2 - x1, y2 - y1
+            angle = math.atan2(dy, dx)
+            shorten = anno.width * 2
             path = QPainterPath()
             path.moveTo(x1, y1)
-            path.lineTo(x2, y2)
+            path.lineTo(x2 - shorten * math.cos(angle),
+                        y2 - shorten * math.sin(angle))
             line = QGraphicsPathItem(path)
             line.setPen(pen)
             line.setZValue(1)
             items.append(line)
-            dx, dy = x2 - x1, y2 - y1
-            angle = math.atan2(dy, dx)
-            sz = 10
+            sz = max(10, anno.width * 3)
             spread = math.pi / 6
             tip1 = QPointF(x2 - sz * math.cos(angle - spread),
                            y2 - sz * math.sin(angle - spread))
@@ -1033,10 +1035,16 @@ class ImageStackViewer(QMainWindow):
         x, y = scene_pos.x(), scene_pos.y()
         dx = src.x2 - src.x1
         dy = src.y2 - src.y1
-        gx1 = x - dx / 2
-        gy1 = y - dy / 2
-        gx2 = x + dx / 2
-        gy2 = y + dy / 2
+        if isinstance(src, Arrow):
+            gx1 = x - dx
+            gy1 = y - dy
+            gx2 = x
+            gy2 = y
+        else:
+            gx1 = x - dx / 2
+            gy1 = y - dy / 2
+            gx2 = x + dx / 2
+            gy2 = y + dy / 2
         for item in self._ghost_items:
             self.scene.removeItem(item)
         self._ghost_items = []
@@ -1069,17 +1077,19 @@ class ImageStackViewer(QMainWindow):
             self.scene.addItem(ellipse)
             self._ghost_items.append(ellipse)
         else:
+            dx2, dy2 = gx2 - gx1, gy2 - gy1
+            angle = math.atan2(dy2, dx2)
+            shorten = src.width * 2
             path = QPainterPath()
             path.moveTo(gx1, gy1)
-            path.lineTo(gx2, gy2)
+            path.lineTo(gx2 - shorten * math.cos(angle),
+                        gy2 - shorten * math.sin(angle))
             line = QGraphicsPathItem(path)
             line.setPen(pen)
             line.setZValue(7)
             self.scene.addItem(line)
             self._ghost_items.append(line)
-            dx2, dy2 = gx2 - gx1, gy2 - gy1
-            angle = math.atan2(dy2, dx2)
-            sz = 10
+            sz = max(10, src.width * 3)
             spread = math.pi / 6
             tip1 = QPointF(gx2 - sz * math.cos(angle - spread),
                            gy2 - sz * math.sin(angle - spread))
@@ -1099,9 +1109,14 @@ class ImageStackViewer(QMainWindow):
             return
         dx = src.x2 - src.x1
         dy = src.y2 - src.y1
-        dst = src.copy_transformed(x - dx / 2, y - dy / 2,
-                                   x + dx / 2, y + dy / 2,
-                                   self._slice_idx)
+        if isinstance(src, Arrow):
+            dst = src.copy_transformed(x - dx, y - dy,
+                                       x, y,
+                                       self._slice_idx)
+        else:
+            dst = src.copy_transformed(x - dx / 2, y - dy / 2,
+                                       x + dx / 2, y + dy / 2,
+                                       self._slice_idx)
         src.color = self._current_color
         src.width = self._current_width
         dst.color = self._current_color
@@ -1253,14 +1268,31 @@ class ImageStackViewer(QMainWindow):
             pen = QPen(QColor(*self._current_color), self._current_width, Qt.PenStyle.DashLine)
 
             if self._active_tool == 'arrow':
+                dx, dy = x - x1, y - y1
+                angle = math.atan2(dy, dx)
+                shorten = self._current_width * 2
                 path = QPainterPath()
                 path.moveTo(x1, y1)
-                path.lineTo(x, y)
+                path.lineTo(x - shorten * math.cos(angle),
+                            y - shorten * math.sin(angle))
                 line = QGraphicsPathItem(path)
                 line.setPen(pen)
                 line.setZValue(6)
                 self.scene.addItem(line)
                 self._preview_items.append(line)
+                sz = max(10, self._current_width * 3)
+                spread = math.pi / 6
+                tip1 = QPointF(x - sz * math.cos(angle - spread),
+                               y - sz * math.sin(angle - spread))
+                tip2 = QPointF(x - sz * math.cos(angle + spread),
+                               y - sz * math.sin(angle + spread))
+                poly = QPolygonF([QPointF(x, y), tip1, tip2])
+                head = QGraphicsPolygonItem(poly)
+                head.setBrush(QBrush(QColor(*self._current_color)))
+                head.setPen(QPen(Qt.PenStyle.NoPen))
+                head.setZValue(6)
+                self.scene.addItem(head)
+                self._preview_items.append(head)
             elif self._active_tool == 'oval':
                 bx, by = min(x1, x), min(y1, y)
                 rw, rh = abs(x - x1), abs(y - y1)
