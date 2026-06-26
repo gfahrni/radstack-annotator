@@ -14,7 +14,7 @@ from PIL import Image as PILImage
 
 from PyQt6.QtCore import Qt, QRectF, QPointF, QSettings, QTimer
 from PyQt6.QtGui import (
-    QPixmap, QImage, QPainter, QPen, QColor, QBrush, QFont,
+    QPixmap, QImage, QPainter, QPen, QColor, QBrush, QFont, QIcon,
     QAction, QKeySequence, QPainterPath, QPolygonF,
 )
 from PyQt6.QtWidgets import (
@@ -39,6 +39,7 @@ PALETTE_COLORS_RGB = [
     (0, 229, 255), (255, 238, 88), (255, 145, 0), (255, 64, 129),
     (118, 255, 3), (224, 64, 251), (255, 255, 255), (255, 23, 68),
 ]
+BORDER_WIDTHS = [1, 3, 6]
 TOOL_TIDS = ['arrow', 'rect', 'oval', 'text']
 TOOL_LABELS = {
     'arrow': '\u2192  Arrow', 'rect': '\u25ad  Rectangle',
@@ -228,6 +229,7 @@ class ImageStackViewer(QMainWindow):
         self._selected_interp_group = None
         self._active_tool = None
         self._current_color = PALETTE_COLORS_RGB[0]
+        self._current_width = BORDER_WIDTHS[0]
         self._drawing = False
         self._draw_start = None
         self._preview_items = []
@@ -363,6 +365,43 @@ class ImageStackViewer(QMainWindow):
             right_layout.addWidget(btn, alignment=Qt.AlignmentFlag.AlignCenter)
         self._palette_group.button(0).setChecked(True)
         self._palette_group.idClicked.connect(self._on_color_selected)
+
+        right_layout.addSpacing(8)
+
+        lbl2 = QLabel('Borders')
+        lbl2.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl2.setStyleSheet('color: #ccc; font-size: 11px; font-weight: bold;')
+        right_layout.addWidget(lbl2)
+
+        self._width_group = QButtonGroup(self)
+        self._width_group.setExclusive(True)
+        for i, w in enumerate(BORDER_WIDTHS):
+            btn = QPushButton()
+            btn.setFixedSize(42, 24)
+            btn.setCheckable(True)
+            pix = QPixmap(42, 24)
+            pix.fill(Qt.GlobalColor.transparent)
+            p = QPainter(pix)
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            p.setPen(QPen(QColor('#cccccc'), w))
+            p.drawLine(6, 12, 36, 12)
+            p.end()
+            btn.setIcon(QIcon(pix))
+            btn.setIconSize(pix.size())
+            btn.setStyleSheet("""
+                QPushButton {
+                    background: #3a3a3a;
+                    border: 1px solid #555;
+                    border-radius: 3px;
+                }
+                QPushButton:checked {
+                    border: 3px solid white;
+                }
+            """)
+            self._width_group.addButton(btn, i)
+            right_layout.addWidget(btn, alignment=Qt.AlignmentFlag.AlignCenter)
+        self._width_group.button(0).setChecked(True)
+        self._width_group.idClicked.connect(self._on_width_selected)
 
         right_layout.addStretch()
 
@@ -553,6 +592,20 @@ class ImageStackViewer(QMainWindow):
                 grp, _ = self._selected_interp_group
                 grp.start_anno.color = self._current_color
                 grp.end_anno.color = self._current_color
+        self._redraw_annotations()
+
+    def _on_width_selected(self, idx):
+        self._current_width = BORDER_WIDTHS[idx]
+        if self._selected_anno is not None:
+            self._selected_anno.width = self._current_width
+            group = self._is_linked_anchor(self._selected_anno)
+            if group is not None:
+                group.start_anno.width = self._current_width
+                group.end_anno.width = self._current_width
+            elif self._selected_interp_group is not None:
+                grp, _ = self._selected_interp_group
+                grp.start_anno.width = self._current_width
+                grp.end_anno.width = self._current_width
         self._redraw_annotations()
 
     def _show_preferences(self):
@@ -813,7 +866,7 @@ class ImageStackViewer(QMainWindow):
         """Create QGraphicsItem(s) for an annotation. Returns a list."""
         x1, y1, x2, y2 = anno.x1, anno.y1, anno.x2, anno.y2
         c = self._anno_qcolor(anno)
-        pen = QPen(c, 2)
+        pen = QPen(c, anno.width)
         items = []
 
         if isinstance(anno, TextBox):
@@ -892,7 +945,7 @@ class ImageStackViewer(QMainWindow):
                     if isinstance(item, QGraphicsTextItem):
                         item.setDefaultTextColor(sel_color)
                     else:
-                        item.setPen(QPen(sel_color, 3))
+                        item.setPen(QPen(sel_color, anno.width))
                 self.scene.addItem(item)
                 self._annotation_items.append(item)
             if is_sel:
@@ -904,7 +957,6 @@ class ImageStackViewer(QMainWindow):
                 is_sel = (self._selected_interp_group is not None and
                           self._selected_interp_group[0] is group and
                           self._selected_interp_group[1] == self._slice_idx)
-                lw = 3 if is_sel else 2
                 items = self._make_annotation_items(interp)
                 sel_color = QColor(*self._current_color)
                 for item in items:
@@ -912,11 +964,25 @@ class ImageStackViewer(QMainWindow):
                         if isinstance(item, QGraphicsTextItem):
                             item.setDefaultTextColor(sel_color)
                         else:
-                            item.setPen(QPen(sel_color, lw))
+                            item.setPen(QPen(sel_color, interp.width))
                     self.scene.addItem(item)
                     self._annotation_items.append(item)
                 if is_sel:
                     self._add_handle_items(interp)
+
+        self._sync_sidebar_to_selection()
+
+    def _sync_sidebar_to_selection(self):
+        if self._selected_anno is not None and self._selected_anno.slice_idx == self._slice_idx:
+            w = self._selected_anno.width
+            if w != self._current_width:
+                self._current_width = w
+                for i, bw in enumerate(BORDER_WIDTHS):
+                    if bw == w:
+                        self._width_group.blockSignals(True)
+                        self._width_group.button(i).setChecked(True)
+                        self._width_group.blockSignals(False)
+                        break
 
     def _add_handle_items(self, anno):
         x1, y1, x2, y2 = anno.x1, anno.y1, anno.x2, anno.y2
@@ -974,7 +1040,7 @@ class ImageStackViewer(QMainWindow):
         for item in self._ghost_items:
             self.scene.removeItem(item)
         self._ghost_items = []
-        pen = QPen(QColor(*self._current_color), 2, Qt.PenStyle.DashLine)
+        pen = QPen(QColor(*self._current_color), src.width, Qt.PenStyle.DashLine)
 
         if isinstance(src, (Rect, TextBox)):
             bx, by = min(gx1, gx2), min(gy1, gy2)
@@ -1037,7 +1103,9 @@ class ImageStackViewer(QMainWindow):
                                    x + dx / 2, y + dy / 2,
                                    self._slice_idx)
         src.color = self._current_color
+        src.width = self._current_width
         dst.color = self._current_color
+        dst.width = self._current_width
         self._add_annotation(dst)
         group = LinkedGroup(src.slice_idx, self._slice_idx, src, dst)
         self._linked_groups.append(group)
@@ -1121,7 +1189,7 @@ class ImageStackViewer(QMainWindow):
                 cls = {'arrow': Arrow, 'rect': Rect,
                        'oval': Oval, 'text': TextBox}.get(
                     self._active_tool, Arrow)
-                kwargs = {}
+                kwargs = {'width': self._current_width}
                 if self._current_color is not None:
                     kwargs['color'] = self._current_color
                 anno = cls(x1, y1, x2, y2, self._slice_idx, **kwargs)
@@ -1182,7 +1250,7 @@ class ImageStackViewer(QMainWindow):
                 self.scene.removeItem(item)
             self._preview_items = []
             x1, y1 = self._draw_start
-            pen = QPen(QColor(*self._current_color), 2, Qt.PenStyle.DashLine)
+            pen = QPen(QColor(*self._current_color), self._current_width, Qt.PenStyle.DashLine)
 
             if self._active_tool == 'arrow':
                 path = QPainterPath()
