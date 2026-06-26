@@ -27,6 +27,7 @@ The goal is to produce an MP4 video of the annotated stack that can be embedded 
 - **Stamp & interpolate** — draw an annotation on one slice, scroll to another slice, and stamp it there; the app automatically interpolates the annotation across all intermediate slices
 - **Color palette** — eight preset colors selectable per annotation
 - **Slice navigation** — mouse wheel, vertical slider, or arrow keys
+- **Save / Load projects** — persist all annotations, linked groups, and UI state to a `.radproj` file beside your image folder
 - **Export images** — save the annotated stack as a new folder of images
 - **Export video** — compile the annotated stack into an MP4 optimised for smooth scrubbing in PowerPoint (keyframe every frame)
 - **Preferences** — configurable background color and JPEG export quality
@@ -48,6 +49,7 @@ radstack-annotator/
     ├── __init__.py     # Makes src/ a Python package
     ├── annotations.py  # Annotation data model and PIL rendering
     ├── loader.py       # load_images() — discovers and reads image files
+    ├── project.py      # Project save/load — serializes annotations to JSON
     ├── saver.py        # Save/export logic for annotated stacks
     └── viewer.py       # ImageStackViewer class — UI layout & interaction
 ```
@@ -159,6 +161,19 @@ When drawing a text box, a dialog appears with:
 
 Interpolated annotations can be selected and moved/resized like any other annotation — the change applies to both anchor slices simultaneously, keeping the interpolation consistent.
 
+### Save / Load projects
+
+Your annotations, linked groups, and UI state (current slice, color, width) can be saved to a `.radproj` file that sits **beside** your image folder.
+
+| Action | How |
+|---|---|
+| **Save Project** | `File → Save Project` (`Ctrl+P`) — saves to the auto-detected path, or prompts for location on first save |
+| **Save Project As...** | `File → Save Project As...` — pick a custom location |
+| **Open Project...** | `File → Open Project...` (`Ctrl+Shift+O`) — loads a `.radproj` file, replacing current annotations |
+| **Auto-save on close** | If a project was already saved during the session, it is saved again automatically when you close the app |
+
+Example: if your images are in `./ct_abdomen/`, the project file will be `./ct_abdomen.radproj`.
+
 ---
 
 ## Color palette
@@ -214,6 +229,8 @@ Preferences are saved between sessions.
 | `O` | Oval tool |
 | `T` | Text tool |
 | `Ctrl+O` | Open folder |
+| `Ctrl+Shift+O` | Open project |
+| `Ctrl+P` | Save project |
 | `Ctrl+S` | Save annotated images |
 | `Ctrl+,` | Preferences |
 | `Ctrl+Q` | Quit |

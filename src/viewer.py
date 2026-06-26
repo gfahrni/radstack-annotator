@@ -31,6 +31,7 @@ from io import BytesIO
 from .loader import load_images, validate_image_folder
 from .annotations import Arrow, Rect, Oval, TextBox, LinkedGroup, render_annotations, _RENDER_SCALE
 from .saver import save_annotated_stack, collect_annotations
+from . import project
 
 
 PALETTE_COLORS = ['#00e5ff', '#ffee58', '#ff9100', '#ff4081',
@@ -219,6 +220,7 @@ class ImageStackViewer(QMainWindow):
 
     def _init_state(self):
         self.data_path = None
+        self._project_path = None
         self._slices = []
         self.num_slices = 0
         self._slice_idx = 0
@@ -261,6 +263,18 @@ class ImageStackViewer(QMainWindow):
         open_act.setShortcut(QKeySequence('Ctrl+O'))
         open_act.triggered.connect(self._open_folder_dialog)
         file_menu.addAction(open_act)
+        open_proj_act = QAction('Open &Project...', self)
+        open_proj_act.setShortcut(QKeySequence('Ctrl+Shift+O'))
+        open_proj_act.triggered.connect(self._open_project)
+        file_menu.addAction(open_proj_act)
+        file_menu.addSeparator()
+        save_proj_act = QAction('&Save Project', self)
+        save_proj_act.setShortcut(QKeySequence('Ctrl+P'))
+        save_proj_act.triggered.connect(self._save_project)
+        file_menu.addAction(save_proj_act)
+        save_proj_as_act = QAction('Save Project &As...', self)
+        save_proj_as_act.triggered.connect(self._save_project_as)
+        file_menu.addAction(save_proj_as_act)
         file_menu.addSeparator()
         save_img_act = QAction('&Save Images', self)
         save_img_act.setShortcut(QKeySequence('Ctrl+S'))
@@ -445,6 +459,10 @@ class ImageStackViewer(QMainWindow):
 
     def closeEvent(self, event):
         self.settings.setValue('window/geometry', self.saveGeometry())
+        if self._loaded and self._annotations and self._project_path:
+            project.save(self._project_path, self._annotations,
+                         self._linked_groups, self._slice_idx,
+                         self._current_color, self._current_width)
         super().closeEvent(event)
 
     # ------------------------------------------------------------------
@@ -456,7 +474,12 @@ class ImageStackViewer(QMainWindow):
         if not urls:
             return
         path = urls[0].toLocalFile()
-        if os.path.isdir(path):
+        if path.endswith('.radproj'):
+            if not self._loaded:
+                QMessageBox.warning(self, 'No Data', 'Load an image folder first.')
+                return
+            self._restore_project(path)
+        elif os.path.isdir(path):
             self.load_folder(path)
         else:
             self.load_folder(os.path.dirname(path))
@@ -492,10 +515,13 @@ class ImageStackViewer(QMainWindow):
         self._show_slice()
         self._update_title()
 
+        self._project_path = project.default_path(data_path)
+
     def _reset_state(self):
         self._slices = []
         self.num_slices = 0
         self._slice_idx = 0
+        self._project_path = None
         self._vmin_max = []
         self._annotations = {}
         self._linked_groups = []
@@ -613,6 +639,90 @@ class ImageStackViewer(QMainWindow):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             bg = self.settings.value('display/bg_color', '#2b2b2b')
             self.view.setStyleSheet(f'background-color: {bg}; border: none;')
+
+    # ------------------------------------------------------------------
+    # Project save / load
+    # ------------------------------------------------------------------
+
+    def _save_project(self):
+        if not self._loaded:
+            QMessageBox.warning(self, 'No Data', 'No images loaded.')
+            return
+        if not self._annotations:
+            QMessageBox.warning(self, 'No Annotations', 'Nothing to save.')
+            return
+        if self._project_path:
+            project.save(self._project_path, self._annotations,
+                         self._linked_groups, self._slice_idx,
+                         self._current_color, self._current_width)
+            self._status.showMessage(f'Project saved to {os.path.basename(self._project_path)}')
+            QMessageBox.information(self, 'Save Complete',
+                                    f'Project saved to:\n{self._project_path}')
+        else:
+            self._save_project_as()
+
+    def _save_project_as(self):
+        if not self._loaded:
+            QMessageBox.warning(self, 'No Data', 'No images loaded.')
+            return
+        default = self._project_path or project.default_path(self.data_path)
+        path, _ = QFileDialog.getSaveFileName(
+            self, 'Save Project As', default,
+            'RadStack Project (*.radproj);;All Files (*)')
+        if not path:
+            return
+        if not path.endswith('.radproj'):
+            path += '.radproj'
+        self._project_path = path
+        project.save(path, self._annotations,
+                     self._linked_groups, self._slice_idx,
+                     self._current_color, self._current_width)
+        self._status.showMessage(f'Project saved to {os.path.basename(path)}')
+        QMessageBox.information(self, 'Save Complete',
+                                f'Project saved to:\n{path}')
+
+    def _open_project(self):
+        if not self._loaded:
+            QMessageBox.warning(self, 'No Data', 'Load an image folder first.')
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self, 'Open Project', '',
+            'RadStack Project (*.radproj);;All Files (*)')
+        if not path:
+            return
+        ret = QMessageBox.question(
+            self, 'Open Project',
+            'Open project file? Current annotations will be replaced.',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if ret != QMessageBox.StandardButton.Yes:
+            return
+        self._restore_project(path)
+
+    def _restore_project(self, path):
+        state = project.load(path)
+        if state is None:
+            QMessageBox.critical(self, 'Error', 'Failed to load project file.')
+            return
+        self.deselect_all()
+        self._annotations = state["annotations"]
+        self._linked_groups = state["linked_groups"]
+        self._project_path = path
+        idx = state["slice_idx"]
+        if 0 <= idx < self.num_slices:
+            self._slice_idx = idx
+            self._slider.blockSignals(True)
+            self._slider.setValue(idx)
+            self._slider.blockSignals(False)
+        self._current_color = state["current_color"]
+        self._current_width = state["current_width"]
+        self._show_slice()
+        self._status.showMessage(f'Restored {sum(len(v) for v in self._annotations.values())} annotations from project')
+
+    def deselect_all(self):
+        self._selected_anno = None
+        self._selected_interp_group = None
+        self._stamp_mode = False
 
     # ------------------------------------------------------------------
     # Save / Export
