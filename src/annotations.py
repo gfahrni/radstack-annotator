@@ -8,13 +8,14 @@ _FONT_CACHE = {}
 
 def _get_font(size):
     if size not in _FONT_CACHE:
-        try:
-            _FONT_CACHE[size] = ImageFont.truetype("Arial.ttf", size)
-        except (OSError, IOError):
+        for name in ("Arial Bold.ttf", "Arial.ttf",
+                      "DejaVuSans-Bold.ttf", "DejaVuSans.ttf"):
             try:
-                _FONT_CACHE[size] = ImageFont.truetype("DejaVuSans.ttf", size)
+                _FONT_CACHE[size] = ImageFont.truetype(name, size)
+                return _FONT_CACHE[size]
             except (OSError, IOError):
-                _FONT_CACHE[size] = ImageFont.load_default()
+                continue
+        _FONT_CACHE[size] = ImageFont.load_default()
     return _FONT_CACHE[size]
 
 
@@ -240,7 +241,7 @@ def render_annotations(image_array, annotations):
             x2_line = x2 - shorten * math.cos(angle)
             y2_line = y2 - shorten * math.sin(angle)
             draw.line([(x1, y1), (x2_line, y2_line)], fill=ann.color, width=w)
-            _draw_arrowhead(draw, x2, y2, dx, dy, ann.color, size=max(12, ann.width * 3) * s)
+            _draw_arrowhead(draw, x2, y2, dx, dy, ann.color, size=max(10, ann.width * 3) * s)
 
     if text_boxes:
         img = img.convert('RGBA')
@@ -251,7 +252,7 @@ def render_annotations(image_array, annotations):
                 overlay = Image.new('RGBA', img.size, (0, 0, 0, 0))
                 od = ImageDraw.Draw(overlay)
                 od.rectangle([min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)],
-                             fill=(0, 0, 0, 128), outline=ann.color, width=ann.width * s)
+                             fill=(0, 0, 0, 128), outline=None)
                 img = Image.alpha_composite(img, overlay)
         img = img.convert('RGB')
         draw = ImageDraw.Draw(img)
@@ -263,8 +264,6 @@ def render_annotations(image_array, annotations):
             tx = (ann.x1 + ann.x2) * s / 2 - tw / 2
             ty = (ann.y1 + ann.y2) * s / 2 - th / 2
             draw.text((tx, ty), ann.text, fill=ann.color, font=font)
-
-    img = img.resize(orig_size, Image.BOX)
 
     result = np.array(img)
     if image_array.dtype in (np.float32, np.float64):

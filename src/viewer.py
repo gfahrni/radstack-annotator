@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
 
 from io import BytesIO
 from .loader import load_images, validate_image_folder
-from .annotations import Arrow, Rect, Oval, TextBox, LinkedGroup, render_annotations
+from .annotations import Arrow, Rect, Oval, TextBox, LinkedGroup, render_annotations, _RENDER_SCALE
 from .saver import save_annotated_stack, collect_annotations
 
 
@@ -640,12 +640,21 @@ class ImageStackViewer(QMainWindow):
             for idx, arr in enumerate(self._slices):
                 annos = collect_annotations(self._annotations,
                                             self._linked_groups, idx)
-                rendered = render_annotations(arr, annos) if annos else arr.copy()
+                if annos:
+                    rendered = render_annotations(arr, annos)
+                else:
+                    pimg = PILImage.fromarray(arr.copy())
+                    if pimg.mode != 'RGB':
+                        pimg = pimg.convert('RGB')
+                    rendered = np.array(pimg.resize(
+                        (arr.shape[1] * _RENDER_SCALE, arr.shape[0] * _RENDER_SCALE),
+                        PILImage.NEAREST))
                 if rendered.dtype in (np.float32, np.float64):
                     rendered = (np.clip(rendered, 0, 1) * 255).astype(np.uint8)
+                dpi = 72 * _RENDER_SCALE
                 PILImage.fromarray(rendered).save(
                     os.path.join(tmp, f'frame_{idx:04d}.jpg'),
-                    quality=quality, subsampling=0)
+                    quality=quality, subsampling=0, dpi=(dpi, dpi))
             list_file = os.path.join(tmp, 'ffmpeg_list.txt')
             with open(list_file, 'w') as f:
                 for idx in range(len(self._slices)):
@@ -658,8 +667,9 @@ class ImageStackViewer(QMainWindow):
                 'ffmpeg', '-y', '-f', 'concat', '-safe', '0',
                 '-i', list_file, '-r', '30',
                 '-c:v', 'libx264',
-                '-x264-params', 'keyint=1:min-keyint=1:no-scenecut=1',
-                '-crf', '18', '-pix_fmt', 'yuv420p', out_path,
+                '-preset', 'slow',
+                '-crf', '23',
+                '-pix_fmt', 'yuv420p', out_path,
             ], check=True)
             self._status.showMessage(f'Video saved to {out_path}')
             QMessageBox.information(self, 'Save Complete',
@@ -1035,16 +1045,10 @@ class ImageStackViewer(QMainWindow):
         x, y = scene_pos.x(), scene_pos.y()
         dx = src.x2 - src.x1
         dy = src.y2 - src.y1
-        if isinstance(src, Arrow):
-            gx1 = x - dx
-            gy1 = y - dy
-            gx2 = x
-            gy2 = y
-        else:
-            gx1 = x - dx / 2
-            gy1 = y - dy / 2
-            gx2 = x + dx / 2
-            gy2 = y + dy / 2
+        gx1 = x - dx / 2
+        gy1 = y - dy / 2
+        gx2 = x + dx / 2
+        gy2 = y + dy / 2
         for item in self._ghost_items:
             self.scene.removeItem(item)
         self._ghost_items = []
@@ -1109,14 +1113,9 @@ class ImageStackViewer(QMainWindow):
             return
         dx = src.x2 - src.x1
         dy = src.y2 - src.y1
-        if isinstance(src, Arrow):
-            dst = src.copy_transformed(x - dx, y - dy,
-                                       x, y,
-                                       self._slice_idx)
-        else:
-            dst = src.copy_transformed(x - dx / 2, y - dy / 2,
-                                       x + dx / 2, y + dy / 2,
-                                       self._slice_idx)
+        dst = src.copy_transformed(x - dx / 2, y - dy / 2,
+                                   x + dx / 2, y + dy / 2,
+                                   self._slice_idx)
         src.color = self._current_color
         src.width = self._current_width
         dst.color = self._current_color
@@ -1409,6 +1408,16 @@ class ImageStackViewer(QMainWindow):
                     if self._selected_anno.slice_idx == self._slice_idx:
                         self._exit_stamp_mode()
                 self._show_slice()
+            return
+
+        tool_map = {
+            Qt.Key.Key_A: 'arrow',
+            Qt.Key.Key_R: 'rect',
+            Qt.Key.Key_O: 'oval',
+            Qt.Key.Key_T: 'text',
+        }
+        if key in tool_map:
+            self._on_tool_click(tool_map[key])
             return
 
         if (key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace) and

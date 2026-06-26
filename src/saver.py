@@ -8,7 +8,7 @@ and rendering the annotated image stack to disk.
 import os
 import numpy as np
 from PIL import Image as PILImage
-from .annotations import render_annotations
+from .annotations import render_annotations, _RENDER_SCALE
 
 
 def collect_annotations(annotations, linked_groups, idx):
@@ -33,15 +33,20 @@ def save_annotated_stack(slices, annotations, linked_groups, data_path, settings
         if annos:
             rendered = render_annotations(arr, annos)
         else:
-            rendered = arr.copy()
+            rendered = PILImage.fromarray(arr.copy())
+            if rendered.mode != 'RGB':
+                rendered = rendered.convert('RGB')
+            rendered = np.array(rendered.resize(
+                (arr.shape[1] * _RENDER_SCALE, arr.shape[0] * _RENDER_SCALE), PILImage.NEAREST))
+        dpi = 72 * _RENDER_SCALE
 
         if rendered.dtype in (np.float32, np.float64):
             rendered = (np.clip(rendered, 0, 1) * 255).astype(np.uint8)
 
         path = os.path.join(out_dir, f'slice_{idx:04d}.{fmt}')
         if fmt == 'jpeg':
-            PILImage.fromarray(rendered).save(path, quality=quality, subsampling=0)
+            PILImage.fromarray(rendered).save(path, quality=quality, subsampling=0, dpi=(dpi, dpi))
         else:
-            PILImage.fromarray(rendered).save(path)
+            PILImage.fromarray(rendered).save(path, dpi=(dpi, dpi))
 
     print(f'Saved annotated stack to {out_dir} ({len(slices)} images)')

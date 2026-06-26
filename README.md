@@ -181,11 +181,13 @@ The first color (cyan) is selected by default when a new annotation is created.
 ## Export
 
 | Action | Output location |
-|---|---|
+|---|---|---|
 | **Save Images** | `{your-folder}_annotated/` next to your image folder |
 | **Save Video** | `annotated-video.mp4` next to your image folder |
 
-The video is encoded with H.264 at CRF 18 with a keyframe on every frame, making it suitable for frame-by-frame scrubbing in PowerPoint.
+Images and video frames are rendered at **2× the original resolution** with 144 DPI, producing crisp text and shapes on both Retina and standard displays.
+
+The video is encoded with H.264 (preset `slow`, CRF 23) and standard keyframe interval for efficient file sizes while maintaining high visual quality.
 
 ---
 
@@ -206,7 +208,11 @@ Preferences are saved between sessions.
 ## Keyboard shortcuts
 
 | Shortcut | Action |
-|---|---|
+|---|---|---|
+| `A` | Arrow tool |
+| `R` | Rectangle tool |
+| `O` | Oval tool |
+| `T` | Text tool |
 | `Ctrl+O` | Open folder |
 | `Ctrl+S` | Save annotated images |
 | `Ctrl+,` | Preferences |
