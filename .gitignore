@@ -23,9 +23,11 @@ images/
 images_annotated/
 RadStackAnnotator-portable-windows.zip
 
-# PyInstaller + Windows packaging (ffmpeg.exe is heavy, downloaded by CI)
+# PyInstaller + packaging (ffmpeg is heavy, downloaded by CI)
 packaging/windows/ffmpeg.exe
 packaging/windows/ffmpeg.zip
+packaging/macos/ffmpeg
+packaging/macos/ffmpeg.zip
 *.spec.bak
 
 # Media & presentation files
