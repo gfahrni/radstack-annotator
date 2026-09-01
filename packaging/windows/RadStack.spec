@@ -22,17 +22,19 @@ except NameError:
 # If missing locally, build still succeeds but video export will require system ffmpeg.
 ffmpeg_bin = os.path.join(_spec_dir, 'ffmpeg.exe')
 extra_binaries = []
+extra_datas = []
 # Debug for CI
 print(f"[spec] _spec_dir={_spec_dir} ffmpeg_bin={ffmpeg_bin} exists={os.path.isfile(ffmpeg_bin)} cwd={os.getcwd()} SPECPATH={globals().get('SPECPATH', 'N/A')}")
 if os.path.isfile(ffmpeg_bin):
     extra_binaries.append((ffmpeg_bin, '.'))
-    print(f"[spec] adding ffmpeg binary: {ffmpeg_bin}")
+    extra_datas.append((ffmpeg_bin, '.'))
+    print(f"[spec] adding ffmpeg binary+data: {ffmpeg_bin}")
 else:
-    # Fallback: also check repo packaging/windows from cwd (when SPECPATH was cwd)
     _alt = os.path.join(os.getcwd(), 'packaging/windows/ffmpeg.exe')
     print(f"[spec] fallback check {_alt} exists={os.path.isfile(_alt)}")
     if os.path.isfile(_alt):
         extra_binaries.append((_alt, '.'))
+        extra_datas.append((_alt, '.'))
         print(f"[spec] adding fallback ffmpeg: {_alt}")
     else:
         print("[spec] WARNING: ffmpeg.exe not found, video export will require system ffmpeg")
@@ -41,7 +43,7 @@ a = Analysis(
     ['../../run.py'],
     pathex=[os.path.abspath(os.path.join(_spec_dir, '../..'))] if os.path.isdir(os.path.join(_spec_dir, '../..')) else [os.getcwd()],
     binaries=extra_binaries,
-    datas=[],
+    datas=extra_datas,
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

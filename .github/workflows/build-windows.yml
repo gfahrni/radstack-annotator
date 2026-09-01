@@ -42,9 +42,19 @@ jobs:
         run: |
           if (!(Test-Path dist/RadStackAnnotator/RadStackAnnotator.exe)) { throw "exe missing" }
           if (!(Test-Path packaging/windows/ffmpeg.exe)) { throw "ffmpeg not bundled" }
-          # check ffmpeg is bundled in dist
+          Write-Host "Listing dist/RadStackAnnotator (top):"
+          Get-ChildItem dist/RadStackAnnotator | Format-Table Name, Length
+          Write-Host "Recursive search for ffmpeg.exe:"
+          Get-ChildItem dist -Recurse -Filter ffmpeg.exe | Format-Table FullName, Length
+          # fallback copy if PyInstaller didn't collect (cache issue)
+          if (!(Test-Path dist/RadStackAnnotator/ffmpeg.exe)) {
+            if (Test-Path packaging/windows/ffmpeg.exe) {
+              Write-Host "ffmpeg not collected by PyInstaller, copying manually..."
+              Copy-Item packaging/windows/ffmpeg.exe dist/RadStackAnnotator/ffmpeg.exe
+            }
+          }
           if (!(Test-Path dist/RadStackAnnotator/ffmpeg.exe)) { throw "ffmpeg not collected" }
-          Get-ChildItem dist/RadStackAnnotator | Format-Table
+          Get-ChildItem dist/RadStackAnnotator | Format-Table Name, Length
 
       - name: Zip portable
         shell: pwsh
