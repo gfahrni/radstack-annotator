@@ -8,27 +8,38 @@ import os
 
 block_cipher = None
 
-# In a .spec __file__ is not defined — use SPECPATH/SPEC which PyInstaller provides.
-_spec_dir = globals().get('SPECPATH') or os.path.dirname(os.path.abspath(globals().get('SPEC', __file__) if '__file__' in globals() else os.path.join(os.getcwd(), 'packaging/windows/RadStack.spec')))
-# Fallback: directory of this spec
+# PyInstaller defines SPECPATH (dir of .spec) and SPEC (path to .spec) at runtime.
+# Fallback for local py_compile uses cwd.
 try:
-    _spec_dir = SPECPATH  # type: ignore # defined by PyInstaller
+    _spec_dir = SPECPATH  # type: ignore
 except NameError:
     try:
         _spec_dir = os.path.dirname(os.path.abspath(SPEC))  # type: ignore
     except NameError:
-        _spec_dir = os.path.join(os.getcwd(), 'packaging/windows')
+        _spec_dir = os.path.abspath(os.path.join(os.getcwd(), 'packaging/windows'))
 
 # ffmpeg.exe is expected next to the spec at build time (downloaded by CI).
 # If missing locally, build still succeeds but video export will require system ffmpeg.
 ffmpeg_bin = os.path.join(_spec_dir, 'ffmpeg.exe')
 extra_binaries = []
+# Debug for CI
+print(f"[spec] _spec_dir={_spec_dir} ffmpeg_bin={ffmpeg_bin} exists={os.path.isfile(ffmpeg_bin)} cwd={os.getcwd()} SPECPATH={globals().get('SPECPATH', 'N/A')}")
 if os.path.isfile(ffmpeg_bin):
     extra_binaries.append((ffmpeg_bin, '.'))
+    print(f"[spec] adding ffmpeg binary: {ffmpeg_bin}")
+else:
+    # Fallback: also check repo packaging/windows from cwd (when SPECPATH was cwd)
+    _alt = os.path.join(os.getcwd(), 'packaging/windows/ffmpeg.exe')
+    print(f"[spec] fallback check {_alt} exists={os.path.isfile(_alt)}")
+    if os.path.isfile(_alt):
+        extra_binaries.append((_alt, '.'))
+        print(f"[spec] adding fallback ffmpeg: {_alt}")
+    else:
+        print("[spec] WARNING: ffmpeg.exe not found, video export will require system ffmpeg")
 
 a = Analysis(
     ['../../run.py'],
-    pathex=[os.path.abspath(os.path.join(_spec_dir, '../..'))],
+    pathex=[os.path.abspath(os.path.join(_spec_dir, '../..'))] if os.path.isdir(os.path.join(_spec_dir, '../..')) else [os.getcwd()],
     binaries=extra_binaries,
     datas=[],
     hiddenimports=[],
