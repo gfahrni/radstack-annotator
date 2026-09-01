@@ -8,16 +8,27 @@ import os
 
 block_cipher = None
 
+# In a .spec __file__ is not defined — use SPECPATH/SPEC which PyInstaller provides.
+_spec_dir = globals().get('SPECPATH') or os.path.dirname(os.path.abspath(globals().get('SPEC', __file__) if '__file__' in globals() else os.path.join(os.getcwd(), 'packaging/windows/RadStack.spec')))
+# Fallback: directory of this spec
+try:
+    _spec_dir = SPECPATH  # type: ignore # defined by PyInstaller
+except NameError:
+    try:
+        _spec_dir = os.path.dirname(os.path.abspath(SPEC))  # type: ignore
+    except NameError:
+        _spec_dir = os.path.join(os.getcwd(), 'packaging/windows')
+
 # ffmpeg.exe is expected next to the spec at build time (downloaded by CI).
 # If missing locally, build still succeeds but video export will require system ffmpeg.
-ffmpeg_bin = os.path.join(os.path.dirname(__file__), 'ffmpeg.exe')
+ffmpeg_bin = os.path.join(_spec_dir, 'ffmpeg.exe')
 extra_binaries = []
 if os.path.isfile(ffmpeg_bin):
     extra_binaries.append((ffmpeg_bin, '.'))
 
 a = Analysis(
     ['../../run.py'],
-    pathex=[os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))],
+    pathex=[os.path.abspath(os.path.join(_spec_dir, '../..'))],
     binaries=extra_binaries,
     datas=[],
     hiddenimports=[],
@@ -49,7 +60,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=os.path.join(os.path.dirname(__file__), 'icon.ico'),
+    icon=os.path.join(_spec_dir, 'icon.ico'),
 )
 
 coll = COLLECT(
