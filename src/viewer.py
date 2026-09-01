@@ -5,9 +5,35 @@ slice by slice, with annotation tools and stamp interpolation.
 
 import os
 import math
+import sys
 import subprocess
 import tempfile
 import shutil
+
+
+def _ffmpeg_exe():
+    """Return path to ffmpeg exe, handling PyInstaller onedir/onefile bundle."""
+    # 1) PyInstaller bundle: ffmpeg.exe next to executable or in _MEIPASS
+    if getattr(sys, 'frozen', False):
+        # onedir: exe dir contains ffmpeg.exe
+        exe_dir = os.path.dirname(sys.executable)
+        cand = os.path.join(exe_dir, 'ffmpeg.exe')
+        if os.path.isfile(cand):
+            return cand
+        cand2 = os.path.join(exe_dir, 'ffmpeg')
+        if os.path.isfile(cand2):
+            return cand2
+        # onefile: extracted to _MEIPASS
+        meipass = getattr(sys, '_MEIPASS', '')
+        if meipass:
+            cand3 = os.path.join(meipass, 'ffmpeg.exe')
+            if os.path.isfile(cand3):
+                return cand3
+            cand4 = os.path.join(meipass, 'ffmpeg')
+            if os.path.isfile(cand4):
+                return cand4
+    # 2) Dev / system PATH
+    return 'ffmpeg'
 
 import numpy as np
 from PIL import Image as PILImage
@@ -773,8 +799,9 @@ class ImageStackViewer(QMainWindow):
                 os.path.dirname(self.data_path.rstrip('/')), 'annotated-video.mp4')
             self._status.showMessage('Encoding video with ffmpeg...')
             QApplication.processEvents()
+            ffmpeg = _ffmpeg_exe()
             subprocess.run([
-                'ffmpeg', '-y', '-f', 'concat', '-safe', '0',
+                ffmpeg, '-y', '-f', 'concat', '-safe', '0',
                 '-i', list_file, '-r', '30',
                 '-c:v', 'libx264',
                 '-preset', 'slow',
@@ -784,6 +811,9 @@ class ImageStackViewer(QMainWindow):
             self._status.showMessage(f'Video saved to {out_path}')
             QMessageBox.information(self, 'Save Complete',
                                     f'Video saved to:\n{out_path}')
+        except FileNotFoundError:
+            QMessageBox.critical(self, 'Error',
+                                 'ffmpeg not found. bundled ffmpeg.exe is missing next to the app.')
         except subprocess.CalledProcessError:
             QMessageBox.critical(self, 'Error',
                                  'ffmpeg failed. Is it installed on your PATH?')

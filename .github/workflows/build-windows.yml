@@ -1,0 +1,59 @@
+name: Build Windows portable (onedir)
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install . pyinstaller
+
+      - name: Download ffmpeg (static build)
+        shell: pwsh
+        run: |
+          $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+          Invoke-WebRequest -Uri $url -OutFile ffmpeg.zip
+          Expand-Archive ffmpeg.zip -Force
+          $exe = Get-ChildItem -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+          Copy-Item $exe.FullName packaging/windows/ffmpeg.exe
+          ./packaging/windows/ffmpeg.exe -version
+
+      - name: Build with PyInstaller (onedir)
+        run: pyinstaller packaging/windows/RadStack.spec --noconfirm
+
+      - name: Smoke test (exe exists)
+        shell: pwsh
+        run: |
+          if (!(Test-Path dist/RadStackAnnotator/RadStackAnnotator.exe)) { throw "exe missing" }
+          if (!(Test-Path packaging/windows/ffmpeg.exe)) { throw "ffmpeg not bundled" }
+          # check ffmpeg is bundled in dist
+          if (!(Test-Path dist/RadStackAnnotator/ffmpeg.exe)) { throw "ffmpeg not collected" }
+          Get-ChildItem dist/RadStackAnnotator | Format-Table
+
+      - name: Zip portable
+        shell: pwsh
+        run: Compress-Archive -Path dist/RadStackAnnotator -DestinationPath RadStackAnnotator-portable-windows.zip -Force
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: RadStackAnnotator-portable-windows.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

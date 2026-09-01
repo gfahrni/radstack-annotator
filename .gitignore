@@ -21,7 +21,16 @@ env/
 # Generated / input image data (not source code)
 images/
 images_annotated/
+RadStackAnnotator-portable-windows.zip
+
+# PyInstaller + Windows packaging (ffmpeg.exe is heavy, downloaded by CI)
+packaging/windows/ffmpeg.exe
+packaging/windows/ffmpeg.zip
+*.spec.bak
 
 # Media & presentation files
 *.mp4
 *.pptx
+
+# Preprint manuscript (submission files, not source code)
+arxiv/
